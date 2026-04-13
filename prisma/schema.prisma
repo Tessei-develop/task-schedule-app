@@ -1,0 +1,47 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Task {
+  id                    String    @id @default(cuid())
+  title                 String
+  description           String?
+  status                String    @default("TODO")
+  priority              String    @default("MEDIUM")
+  startDate             DateTime?
+  dueDate               DateTime?
+  completedAt           DateTime?
+  estimatedMinutes      Int?
+  startTime             String?
+  endTime               String?
+  tags                  String[]  @default([])
+  recurrence            String?
+  recurrenceInterval    Int?
+  recurrenceEndDate     DateTime?
+  googleCalendarEventId String?
+  googleCalendarSynced  Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+model GoogleToken {
+  id           String   @id @default("singleton")
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  scope        String
+  tokenType    String
+  updatedAt    DateTime @updatedAt
+}
+
+model AIInsight {
+  id        String   @id @default(cuid())
+  type      String
+  content   String
+  date      String
+  createdAt DateTime @default(now())
+}

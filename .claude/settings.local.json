@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd.exe /c \"where node 2>&1 && node --version && npx --version\")",
+      "Bash(cmd.exe /c \"where node\")",
+      "Bash(cmd.exe /c \"node --version\")",
+      "Bash(cmd.exe /c \"npm --version\")",
+      "Bash(powershell.exe -Command \"Get-Command node -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source; node --version; npm --version\")",
+      "Bash(npm --version)",
+      "Bash(npx --version)",
+      "Bash(npx create-next-app@latest . --typescript --tailwind --app --src-dir --import-alias \"@/*\" --no-eslint --yes)",
+      "Bash(npx create-next-app@latest . --typescript --tailwind --app --src-dir --import-alias \"@/*\" --no-eslint --yes --name task-schedule-app)",
+      "Read(//c/Users/tetsu/Documents/Document/Claude/**)",
+      "Bash(npx create-next-app@latest task-schedule-app --typescript --tailwind --app --src-dir --import-alias \"@/*\" --no-eslint --yes)",
+      "Bash(npm install:*)",
+      "Bash(npx shadcn@latest init --defaults -y)"
+    ]
+  }
+}
