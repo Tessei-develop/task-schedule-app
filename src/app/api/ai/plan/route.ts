@@ -13,10 +13,12 @@ function serializeTask(t: Awaited<ReturnType<typeof prisma.task.findFirst>>): Ta
     startDate: t.startDate?.toISOString() ?? null,
     dueDate: t.dueDate?.toISOString() ?? null,
     completedAt: t.completedAt?.toISOString() ?? null,
+    recurrenceEndDate: t.recurrenceEndDate?.toISOString() ?? null,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
     status: t.status as Task['status'],
     priority: t.priority as Task['priority'],
+    recurrence: t.recurrence as Task['recurrence'],
   }
 }
 

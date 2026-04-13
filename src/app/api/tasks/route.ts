@@ -11,10 +11,12 @@ function serializeTask(t: Awaited<ReturnType<typeof prisma.task.findFirst>>): Ta
     startDate: t.startDate?.toISOString() ?? null,
     dueDate: t.dueDate?.toISOString() ?? null,
     completedAt: t.completedAt?.toISOString() ?? null,
+    recurrenceEndDate: t.recurrenceEndDate?.toISOString() ?? null,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
     status: t.status as Task['status'],
     priority: t.priority as Task['priority'],
+    recurrence: (t.recurrence as Task['recurrence']) ?? null,
   }
 }
 
@@ -30,13 +32,8 @@ export async function GET(req: NextRequest) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const where: any = {}
-
-  if (status && status !== 'ALL') {
-    where.status = status
-  }
-  if (priority && priority !== 'ALL') {
-    where.priority = priority
-  }
+  if (status && status !== 'ALL') where.status = status
+  if (priority && priority !== 'ALL') where.priority = priority
   if (search) {
     where.OR = [
       { title: { contains: search, mode: 'insensitive' } },
@@ -55,13 +52,8 @@ export async function GET(req: NextRequest) {
   })
 
   let tasks = rawTasks.map(serializeTask)
-
-  if (overdueOnly) {
-    tasks = tasks.filter((t: Task) => isOverdue(t.dueDate, t.status))
-  }
-  if (todayOnly) {
-    tasks = tasks.filter((t: Task) => isDueToday(t.dueDate))
-  }
+  if (overdueOnly) tasks = tasks.filter((t: Task) => isOverdue(t.dueDate, t.status))
+  if (todayOnly) tasks = tasks.filter((t: Task) => isDueToday(t.dueDate))
 
   return NextResponse.json({ tasks, total: tasks.length })
 }
@@ -78,13 +70,17 @@ export async function POST(req: NextRequest) {
       startDate: body.startDate ? new Date(body.startDate) : null,
       dueDate: body.dueDate ? new Date(body.dueDate) : null,
       estimatedMinutes: body.estimatedMinutes ?? null,
+      startTime: body.startTime ?? null,
+      endTime: body.endTime ?? null,
       tags: body.tags ?? [],
+      recurrence: body.recurrence ?? null,
+      recurrenceInterval: body.recurrenceInterval ?? null,
+      recurrenceEndDate: body.recurrenceEndDate ? new Date(body.recurrenceEndDate) : null,
     },
   })
 
   const serialized = serializeTask(task)
 
-  // Auto-sync to Google Calendar
   if (await isGoogleConnected()) {
     try {
       const eventId = await createCalendarEvent(serialized)
@@ -94,7 +90,7 @@ export async function POST(req: NextRequest) {
       })
       return NextResponse.json({ task: serializeTask(updated) }, { status: 201 })
     } catch {
-      // Sync failed — still return the created task
+      // sync failed — still return task
     }
   }
 
