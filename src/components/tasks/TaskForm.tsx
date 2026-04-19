@@ -68,7 +68,7 @@ const defaultForm: FormState = {
 }
 
 export function TaskForm() {
-  const { isTaskFormOpen, editingTaskId, prefillDate, closeTaskForm } = useUIStore()
+  const { isTaskFormOpen, editingTaskId, prefillDate, prefillData, closeTaskForm } = useUIStore()
   const { tasks, createTask, updateTask } = useTaskStore()
   const [form, setForm] = useState<FormState>(defaultForm)
   const [saving, setSaving] = useState(false)
@@ -97,10 +97,14 @@ export function TaskForm() {
         recurrenceEndDate: editingTask.recurrenceEndDate?.slice(0, 10) ?? '',
       })
     } else {
-      setForm({ ...defaultForm, dueDate: prefillDate ?? '' })
+      setForm({
+        ...defaultForm,
+        dueDate: prefillDate ?? '',
+        ...(prefillData ?? {}),
+      })
     }
     setCustomTagInput('')
-  }, [isTaskFormOpen, editingTask, prefillDate])
+  }, [isTaskFormOpen, editingTask, prefillDate, prefillData])
 
   const toggleTag = (tag: string) => {
     setForm((f) => ({

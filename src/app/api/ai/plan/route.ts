@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { anthropic } from '@/lib/anthropic'
+import { groq, GROQ_MODEL } from '@/lib/groq'
 import { buildDailyPlanPrompt } from '@/lib/ai-prompts'
 import { isOverdue, isDueToday, todayISO } from '@/lib/date-utils'
 import { format } from 'date-fns'
@@ -44,22 +44,26 @@ export async function POST(req: NextRequest) {
 
   const tasks = rawTasks.map(serializeTask)
   const todayTasks = tasks.filter((t: Task) => isDueToday(t.dueDate))
-  const overdueTasks = tasks.filter((t: Task) => isOverdue(t.dueDate, t.status))
+  const overdueTasks = tasks.filter((t: Task) => isOverdue(t.dueDate, t.status, t.endTime))
   const currentTime = format(new Date(), 'h:mm a')
 
   const { system, user } = buildDailyPlanPrompt(todayTasks, overdueTasks, date, currentTime)
 
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
+  const completion = await groq.chat.completions.create({
+    model: GROQ_MODEL,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
     max_tokens: 2048,
-    system,
-    messages: [{ role: 'user', content: user }],
+    temperature: 0.3,
   })
-
-  const raw = message.content[0].type === 'text' ? message.content[0].text : '{}'
+  const raw = completion.choices[0]?.message?.content ?? '{}'
+  // Strip markdown code fences that Gemini sometimes adds
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim()
   let plan
   try {
-    plan = JSON.parse(raw)
+    plan = JSON.parse(cleaned)
   } catch {
     plan = { date, introduction: raw, schedule: [], totalEstimatedMinutes: 0, tips: [] }
   }

@@ -2,8 +2,9 @@ import { create } from 'zustand'
 import type { Task } from '@/types'
 
 interface TaskFilters {
-  status?: string
-  priority?: string
+  status?: string[]
+  priority?: string[]
+  tags?: string[]
   search?: string
   dateFrom?: string
   dateTo?: string
@@ -25,7 +26,8 @@ interface TaskStore {
 
 export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
-  filters: {},
+  // Default: hide Done and Cancelled so the list focuses on active work
+  filters: { status: ['TODO', 'IN_PROGRESS'] },
   loading: false,
   error: null,
 
@@ -34,11 +36,12 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     try {
       const { filters } = get()
       const params = new URLSearchParams()
-      if (filters.status) params.set('status', filters.status)
-      if (filters.priority) params.set('priority', filters.priority)
-      if (filters.search) params.set('search', filters.search)
+      if (filters.status?.length)   params.set('status',   filters.status.join(','))
+      if (filters.priority?.length) params.set('priority', filters.priority.join(','))
+      if (filters.tags?.length)     params.set('tags',     filters.tags.join(','))
+      if (filters.search)   params.set('search',   filters.search)
       if (filters.dateFrom) params.set('dateFrom', filters.dateFrom)
-      if (filters.dateTo) params.set('dateTo', filters.dateTo)
+      if (filters.dateTo)   params.set('dateTo',   filters.dateTo)
 
       const res = await fetch(`/api/tasks?${params}`)
       if (!res.ok) throw new Error('Failed to fetch tasks')
@@ -99,7 +102,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   clearFilters: () => {
-    set({ filters: {} })
+    set({ filters: { status: ['TODO', 'IN_PROGRESS'] } })
     get().fetchTasks()
   },
 }))

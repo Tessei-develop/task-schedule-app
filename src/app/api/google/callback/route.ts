@@ -17,7 +17,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(
       new URL('/dashboard?google=connected', req.url)
     )
-  } catch {
+  } catch (err) {
+    console.error('[Google OAuth callback error]', err)
     return NextResponse.redirect(
       new URL('/dashboard?google=error', req.url)
     )

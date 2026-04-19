@@ -31,10 +31,11 @@ model Task {
 model GoogleToken {
   id           String   @id @default("singleton")
   accessToken  String
-  refreshToken String
+  refreshToken String?
   expiresAt    DateTime
   scope        String
   tokenType    String
+  syncToken    String?
   updatedAt    DateTime @updatedAt
 }
 

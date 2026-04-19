@@ -49,7 +49,7 @@ export function TaskCard({ task }: { task: Task }) {
   const openTaskForm = useUIStore((s) => s.openTaskForm)
   const [deleting, setDeleting] = useState(false)
 
-  const overdue = isOverdue(task.dueDate, task.status)
+  const overdue = isOverdue(task.dueDate, task.status, task.endTime)
 
   const toggleDone = async () => {
     const newStatus = task.status === 'DONE' ? 'TODO' : 'DONE'

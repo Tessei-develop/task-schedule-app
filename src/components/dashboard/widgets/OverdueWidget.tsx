@@ -20,7 +20,7 @@ export function OverdueWidget() {
   }, [fetchTasks])
 
   const overdueTasks: Task[] = tasks
-    .filter((t) => isOverdue(t.dueDate, t.status))
+    .filter((t) => isOverdue(t.dueDate, t.status, t.endTime))
     .sort((a, b) => {
       if (!a.dueDate || !b.dueDate) return 0
       return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()

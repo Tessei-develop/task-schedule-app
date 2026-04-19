@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import {
   updateCalendarEvent,
@@ -8,6 +9,25 @@ import {
 } from '@/lib/google-calendar'
 import { addDays, addWeeks, addMonths, addYears, parseISO, isBefore } from 'date-fns'
 import type { Task, RecurrenceType } from '@/types'
+
+const TIME_RE = /^\d{2}:\d{2}$/
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+const PatchSchema = z.object({
+  title:              z.string().min(1).max(255).optional(),
+  description:        z.string().max(10000).optional().nullable(),
+  status:             z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELLED']).optional(),
+  priority:           z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
+  startDate:          z.string().regex(DATE_RE).optional().nullable(),
+  dueDate:            z.string().regex(DATE_RE).optional().nullable(),
+  startTime:          z.string().regex(TIME_RE).optional().nullable(),
+  endTime:            z.string().regex(TIME_RE).optional().nullable(),
+  estimatedMinutes:   z.number().int().min(1).max(86400).optional().nullable(),
+  tags:               z.array(z.string().max(50)).max(20).optional(),
+  recurrence:         z.enum(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']).optional().nullable(),
+  recurrenceInterval: z.number().int().min(1).max(365).optional().nullable(),
+  recurrenceEndDate:  z.string().regex(DATE_RE).optional().nullable(),
+})
 
 function serializeTask(t: Awaited<ReturnType<typeof prisma.task.findFirst>>): Task {
   if (!t) throw new Error('Task not found')
@@ -98,24 +118,30 @@ export async function PATCH(
   const { id } = await params
   const body = await req.json()
 
-  const updateData: Record<string, unknown> = {}
-  if (body.title !== undefined) updateData.title = body.title
-  if (body.description !== undefined) updateData.description = body.description
-  if (body.status !== undefined) {
-    updateData.status = body.status
-    updateData.completedAt = body.status === 'DONE' ? new Date() : null
+  const parsed = PatchSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid input', issues: parsed.error.issues }, { status: 400 })
   }
-  if (body.priority !== undefined) updateData.priority = body.priority
-  if ('startDate' in body) updateData.startDate = body.startDate ? new Date(body.startDate) : null
-  if ('dueDate' in body) updateData.dueDate = body.dueDate ? new Date(body.dueDate) : null
-  if (body.estimatedMinutes !== undefined) updateData.estimatedMinutes = body.estimatedMinutes
-  if ('startTime' in body) updateData.startTime = body.startTime ?? null
-  if ('endTime' in body) updateData.endTime = body.endTime ?? null
-  if (body.tags !== undefined) updateData.tags = body.tags
-  if ('recurrence' in body) updateData.recurrence = body.recurrence ?? null
-  if ('recurrenceInterval' in body) updateData.recurrenceInterval = body.recurrenceInterval ?? null
-  if ('recurrenceEndDate' in body)
-    updateData.recurrenceEndDate = body.recurrenceEndDate ? new Date(body.recurrenceEndDate) : null
+  const data = parsed.data
+
+  const updateData: Record<string, unknown> = {}
+  if (data.title !== undefined) updateData.title = data.title
+  if (data.description !== undefined) updateData.description = data.description
+  if (data.status !== undefined) {
+    updateData.status = data.status
+    updateData.completedAt = data.status === 'DONE' ? new Date() : null
+  }
+  if (data.priority !== undefined) updateData.priority = data.priority
+  if ('startDate' in data) updateData.startDate = data.startDate ? new Date(data.startDate) : null
+  if ('dueDate' in data) updateData.dueDate = data.dueDate ? new Date(data.dueDate) : null
+  if (data.estimatedMinutes !== undefined) updateData.estimatedMinutes = data.estimatedMinutes
+  if ('startTime' in data) updateData.startTime = data.startTime ?? null
+  if ('endTime' in data) updateData.endTime = data.endTime ?? null
+  if (data.tags !== undefined) updateData.tags = data.tags
+  if ('recurrence' in data) updateData.recurrence = data.recurrence ?? null
+  if ('recurrenceInterval' in data) updateData.recurrenceInterval = data.recurrenceInterval ?? null
+  if ('recurrenceEndDate' in data)
+    updateData.recurrenceEndDate = data.recurrenceEndDate ? new Date(data.recurrenceEndDate) : null
 
   const task = await prisma.task.update({ where: { id }, data: updateData })
   const serialized = serializeTask(task)
@@ -125,11 +151,16 @@ export async function PATCH(
     await spawnNextRecurrence(task)
   }
 
-  if (task.googleCalendarSynced && await isGoogleConnected()) {
+  // Push update to Google Calendar if an event ID exists — regardless of synced flag
+  if (task.googleCalendarEventId && await isGoogleConnected()) {
     try {
       await updateCalendarEvent(serialized)
-    } catch {
-      await prisma.task.update({ where: { id }, data: { googleCalendarSynced: false } })
+      // Re-mark as synced in case it was previously unset due to an error
+      if (!task.googleCalendarSynced) {
+        await prisma.task.update({ where: { id }, data: { googleCalendarSynced: true } })
+      }
+    } catch (err) {
+      console.error('[Google Calendar update error]', err)
     }
   }
 

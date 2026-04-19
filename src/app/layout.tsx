@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Geist } from 'next/font/google'
 import './globals.css'
 import { Sidebar } from '@/components/layout/Sidebar'
+import { AutoSync } from '@/components/layout/AutoSync'
 import { TaskForm } from '@/components/tasks/TaskForm'
 import { Toaster } from '@/components/ui/sonner'
 
@@ -34,6 +35,7 @@ export default function RootLayout({
         <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
           {children}
         </main>
+        <AutoSync />
         <TaskForm />
         <Toaster richColors position="top-right" />
       </body>

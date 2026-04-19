@@ -2,22 +2,115 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState, useCallback } from 'react'
 import {
   LayoutDashboard,
   ListTodo,
   Calendar,
   CalendarCheck,
   Plus,
+  RefreshCw,
+  Unlink,
+  Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/store/uiStore'
+import { useTaskStore } from '@/store/taskStore'
 import { Button } from '@/components/ui/button'
+import { toast } from 'sonner'
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/tasks', label: 'Tasks', icon: ListTodo },
   { href: '/calendar', label: 'Calendar', icon: Calendar },
 ]
+
+function GoogleCalendarSection() {
+  const [connected, setConnected] = useState<boolean | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const { fetchTasks } = useTaskStore()
+
+  const checkStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/google/status')
+      const data = await res.json()
+      setConnected(data.connected)
+    } catch {
+      setConnected(false)
+    }
+  }, [])
+
+  useEffect(() => { checkStatus() }, [checkStatus])
+
+  const handleSync = async () => {
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/google/sync', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      await fetchTasks()
+      toast.success(
+        `Synced! +${data.created} new, ${data.updated} updated, ${data.deleted} removed`
+      )
+    } catch (err) {
+      toast.error(`Sync failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const handleDisconnect = async () => {
+    try {
+      await fetch('/api/google/status', { method: 'DELETE' })
+      setConnected(false)
+      toast.success('Google Calendar disconnected')
+    } catch {
+      toast.error('Failed to disconnect')
+    }
+  }
+
+  if (connected === null) return null // loading
+
+  if (!connected) {
+    return (
+      <a
+        href="/api/google/auth"
+        className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+      >
+        <CalendarCheck className="h-4 w-4" />
+        Connect Google Calendar
+      </a>
+    )
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2 px-3 py-1">
+        <CalendarCheck className="h-4 w-4 text-green-500 flex-shrink-0" />
+        <span className="text-xs font-medium text-green-600 dark:text-green-400 truncate">
+          Google Calendar
+        </span>
+      </div>
+      <button
+        onClick={handleSync}
+        disabled={syncing}
+        className="flex w-full items-center gap-2 px-3 py-1.5 rounded-md text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+      >
+        {syncing
+          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          : <RefreshCw className="h-3.5 w-3.5" />}
+        Sync from Google
+      </button>
+      <button
+        onClick={handleDisconnect}
+        className="flex w-full items-center gap-2 px-3 py-1.5 rounded-md text-sm text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-red-500 transition-colors"
+      >
+        <Unlink className="h-3.5 w-3.5" />
+        Disconnect
+      </button>
+    </div>
+  )
+}
 
 export function Sidebar() {
   const pathname = usePathname()
@@ -59,17 +152,12 @@ export function Sidebar() {
               {label}
             </Link>
           ))}
-        </nav>
 
-        <div className="mt-auto pt-4 border-t border-gray-200 dark:border-gray-800">
-          <a
-            href="/api/google/auth"
-            className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-          >
-            <CalendarCheck className="h-4 w-4" />
-            Connect Google Calendar
-          </a>
-        </div>
+          {/* Google Calendar section sits directly under the Calendar nav item */}
+          <div className="ml-3 pl-4 border-l border-gray-200 dark:border-gray-700">
+            <GoogleCalendarSection />
+          </div>
+        </nav>
       </aside>
 
       {/* Mobile bottom tab bar */}

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { anthropic } from '@/lib/anthropic'
+import { groq, GROQ_MODEL } from '@/lib/groq'
 import { buildFeedbackPrompt } from '@/lib/ai-prompts'
 import { isOverdue, todayISO } from '@/lib/date-utils'
 import { subDays } from 'date-fns'
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
   const completed = tasks.filter((t: Task) => t.status === 'DONE')
   const cancelled = tasks.filter((t: Task) => t.status === 'CANCELLED')
   const allTasks = await prisma.task.findMany()
-  const overdueTasks = allTasks.map(serializeTask).filter((t: Task) => isOverdue(t.dueDate, t.status))
+  const overdueTasks = allTasks.map(serializeTask).filter((t: Task) => isOverdue(t.dueDate, t.status, t.endTime))
 
   // Compute avg completion days
   const completionDays = completed
@@ -86,17 +86,20 @@ export async function POST(req: NextRequest) {
 
   const { system, user } = buildFeedbackPrompt(metrics)
 
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
+  const completion = await groq.chat.completions.create({
+    model: GROQ_MODEL,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
     max_tokens: 1024,
-    system,
-    messages: [{ role: 'user', content: user }],
+    temperature: 0.3,
   })
-
-  const raw = message.content[0].type === 'text' ? message.content[0].text : '{}'
+  const raw = completion.choices[0]?.message?.content ?? '{}'
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim()
   let feedback
   try {
-    feedback = JSON.parse(raw)
+    feedback = JSON.parse(cleaned)
   } catch {
     feedback = {
       period: `Last ${periodDays} days`,
