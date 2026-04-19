@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useTaskStore } from '@/store/taskStore'
-import { Search, ChevronDown, X, Check } from 'lucide-react'
+import { Search, ChevronDown, X, Check, SlidersHorizontal } from 'lucide-react'
 
 // ─── Generic multi-select dropdown ───────────────────────────────────────────
 
@@ -104,6 +104,7 @@ const PRIORITY_OPTIONS: Option[] = [
 export function TaskFilters() {
   const { filters, setFilters, clearFilters, tasks } = useTaskStore()
   const [search, setSearch] = useState(filters.search ?? '')
+  const [mobileOpen, setMobileOpen] = useState(false)
 
   const allTags = Array.from(new Set(tasks.flatMap((t) => t.tags))).sort()
   const tagOptions: Option[] = allTags.map((t) => ({ value: t, label: t }))
@@ -116,14 +117,20 @@ export function TaskFilters() {
     selectedStatuses.length > 0 ||
     selectedPriorities.length > 0 ||
     selectedTags.length > 0 ||
-    filters.search
+    !!filters.search
+
+  const activeFilterCount =
+    selectedStatuses.length +
+    selectedPriorities.length +
+    selectedTags.length +
+    (filters.search ? 1 : 0)
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
     setFilters({ ...filters, search: search || undefined })
   }
 
-  return (
+  const filterPanel = (
     <div className="flex flex-wrap items-end gap-2 md:gap-3">
       {/* Search */}
       <div>
@@ -175,5 +182,35 @@ export function TaskFilters() {
         </div>
       )}
     </div>
+  )
+
+  return (
+    <>
+      {/* Desktop: always visible */}
+      <div className="hidden md:block">{filterPanel}</div>
+
+      {/* Mobile: collapsible toggle button */}
+      <div className="md:hidden">
+        <button
+          onClick={() => setMobileOpen((o) => !o)}
+          className="flex items-center gap-2 w-full px-3 py-2 rounded-md border border-input bg-background text-sm shadow-sm hover:bg-accent hover:text-accent-foreground"
+        >
+          <SlidersHorizontal className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="flex-1 text-left font-medium">Filters</span>
+          {activeFilterCount > 0 && (
+            <span className="flex items-center justify-center h-5 w-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold shrink-0">
+              {activeFilterCount}
+            </span>
+          )}
+          <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 ${mobileOpen ? 'rotate-180' : ''}`} />
+        </button>
+
+        {mobileOpen && (
+          <div className="mt-2 p-3 rounded-md border border-input bg-background shadow-sm">
+            {filterPanel}
+          </div>
+        )}
+      </div>
+    </>
   )
 }
