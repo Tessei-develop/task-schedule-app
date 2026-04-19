@@ -105,80 +105,106 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params
-  const task = await prisma.task.findUnique({ where: { id } })
-  if (!task) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json({ task: serializeTask(task) })
+  try {
+    const { id } = await params
+    const task = await prisma.task.findUnique({ where: { id } })
+    if (!task) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    return NextResponse.json({ task: serializeTask(task) })
+  } catch (err) {
+    console.error('[GET /api/tasks/[id]]', err)
+    return NextResponse.json({ error: 'Failed to fetch task' }, { status: 500 })
+  }
 }
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params
-  const body = await req.json()
+  try {
+    const { id } = await params
 
-  const parsed = PatchSchema.safeParse(body)
-  if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid input', issues: parsed.error.issues }, { status: 400 })
-  }
-  const data = parsed.data
-
-  const updateData: Record<string, unknown> = {}
-  if (data.title !== undefined) updateData.title = data.title
-  if (data.description !== undefined) updateData.description = data.description
-  if (data.status !== undefined) {
-    updateData.status = data.status
-    updateData.completedAt = data.status === 'DONE' ? new Date() : null
-  }
-  if (data.priority !== undefined) updateData.priority = data.priority
-  if ('startDate' in data) updateData.startDate = data.startDate ? new Date(data.startDate) : null
-  if ('dueDate' in data) updateData.dueDate = data.dueDate ? new Date(data.dueDate) : null
-  if (data.estimatedMinutes !== undefined) updateData.estimatedMinutes = data.estimatedMinutes
-  if ('startTime' in data) updateData.startTime = data.startTime ?? null
-  if ('endTime' in data) updateData.endTime = data.endTime ?? null
-  if (data.tags !== undefined) updateData.tags = data.tags
-  if ('recurrence' in data) updateData.recurrence = data.recurrence ?? null
-  if ('recurrenceInterval' in data) updateData.recurrenceInterval = data.recurrenceInterval ?? null
-  if ('recurrenceEndDate' in data)
-    updateData.recurrenceEndDate = data.recurrenceEndDate ? new Date(data.recurrenceEndDate) : null
-
-  const task = await prisma.task.update({ where: { id }, data: updateData })
-  const serialized = serializeTask(task)
-
-  // Spawn next occurrence when marked DONE
-  if (body.status === 'DONE') {
-    await spawnNextRecurrence(task)
-  }
-
-  // Push update to Google Calendar if an event ID exists — regardless of synced flag
-  if (task.googleCalendarEventId && await isGoogleConnected()) {
+    let body: unknown
     try {
-      await updateCalendarEvent(serialized)
-      // Re-mark as synced in case it was previously unset due to an error
-      if (!task.googleCalendarSynced) {
-        await prisma.task.update({ where: { id }, data: { googleCalendarSynced: true } })
-      }
-    } catch (err) {
-      console.error('[Google Calendar update error]', err)
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
-  }
 
-  return NextResponse.json({ task: serialized })
+    const parsed = PatchSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid input', issues: parsed.error.issues }, { status: 400 })
+    }
+    const data = parsed.data
+
+    // Verify task exists before updating
+    const existing = await prisma.task.findUnique({ where: { id } })
+    if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    const updateData: Record<string, unknown> = {}
+    if (data.title !== undefined) updateData.title = data.title
+    if (data.description !== undefined) updateData.description = data.description
+    if (data.status !== undefined) {
+      updateData.status = data.status
+      updateData.completedAt = data.status === 'DONE' ? new Date() : null
+    }
+    if (data.priority !== undefined) updateData.priority = data.priority
+    if ('startDate' in data) updateData.startDate = data.startDate ? new Date(data.startDate) : null
+    if ('dueDate' in data) updateData.dueDate = data.dueDate ? new Date(data.dueDate) : null
+    if (data.estimatedMinutes !== undefined) updateData.estimatedMinutes = data.estimatedMinutes
+    if ('startTime' in data) updateData.startTime = data.startTime ?? null
+    if ('endTime' in data) updateData.endTime = data.endTime ?? null
+    if (data.tags !== undefined) updateData.tags = data.tags
+    if ('recurrence' in data) updateData.recurrence = data.recurrence ?? null
+    if ('recurrenceInterval' in data) updateData.recurrenceInterval = data.recurrenceInterval ?? null
+    if ('recurrenceEndDate' in data)
+      updateData.recurrenceEndDate = data.recurrenceEndDate ? new Date(data.recurrenceEndDate) : null
+
+    const task = await prisma.task.update({ where: { id }, data: updateData })
+    const serialized = serializeTask(task)
+
+    // Spawn next occurrence when marked DONE
+    const patchedBody = body as Record<string, unknown>
+    if (patchedBody.status === 'DONE') {
+      await spawnNextRecurrence(task)
+    }
+
+    // Push update to Google Calendar if an event ID exists — regardless of synced flag
+    if (task.googleCalendarEventId && await isGoogleConnected()) {
+      try {
+        await updateCalendarEvent(serialized)
+        // Re-mark as synced in case it was previously unset due to an error
+        if (!task.googleCalendarSynced) {
+          await prisma.task.update({ where: { id }, data: { googleCalendarSynced: true } })
+        }
+      } catch (err) {
+        console.error('[Google Calendar update error]', err)
+      }
+    }
+
+    return NextResponse.json({ task: serialized })
+  } catch (err) {
+    console.error('[PATCH /api/tasks/[id]]', err)
+    return NextResponse.json({ error: 'Failed to update task' }, { status: 500 })
+  }
 }
 
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params
-  const task = await prisma.task.findUnique({ where: { id } })
-  if (!task) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  try {
+    const { id } = await params
+    const task = await prisma.task.findUnique({ where: { id } })
+    if (!task) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  if (task.googleCalendarEventId && await isGoogleConnected()) {
-    try { await deleteCalendarEvent(task.googleCalendarEventId) } catch { /* non-fatal */ }
+    if (task.googleCalendarEventId && await isGoogleConnected()) {
+      try { await deleteCalendarEvent(task.googleCalendarEventId) } catch { /* non-fatal */ }
+    }
+
+    await prisma.task.delete({ where: { id } })
+    return NextResponse.json({ success: true })
+  } catch (err) {
+    console.error('[DELETE /api/tasks/[id]]', err)
+    return NextResponse.json({ error: 'Failed to delete task' }, { status: 500 })
   }
-
-  await prisma.task.delete({ where: { id } })
-  return NextResponse.json({ success: true })
 }

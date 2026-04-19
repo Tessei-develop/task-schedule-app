@@ -41,94 +41,117 @@ function serializeTask(t: Awaited<ReturnType<typeof prisma.task.findFirst>>): Ta
 }
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url)
-  const statusParam   = searchParams.get('status')
-  const priorityParam = searchParams.get('priority')
-  const tagsParam     = searchParams.get('tags')
-  const search    = searchParams.get('search')
-  const dateFrom  = searchParams.get('dateFrom')
-  const dateTo    = searchParams.get('dateTo')
-  const overdueOnly = searchParams.get('overdue') === 'true'
-  const todayOnly   = searchParams.get('dueToday') === 'true'
+  try {
+    const { searchParams } = new URL(req.url)
+    const statusParam   = searchParams.get('status')
+    const priorityParam = searchParams.get('priority')
+    const tagsParam     = searchParams.get('tags')
+    const rawSearch   = searchParams.get('search')
+    const rawDateFrom = searchParams.get('dateFrom')
+    const rawDateTo   = searchParams.get('dateTo')
+    const overdueOnly = searchParams.get('overdue') === 'true'
+    const todayOnly   = searchParams.get('dueToday') === 'true'
 
-  // Parse comma-separated multi-value filters
-  const statuses   = statusParam   ? statusParam.split(',').filter(Boolean)   : []
-  const priorities = priorityParam ? priorityParam.split(',').filter(Boolean) : []
-  const tags       = tagsParam     ? tagsParam.split(',').filter(Boolean)     : []
+    // Sanitize search: trim and enforce max length
+    const search = rawSearch ? rawSearch.trim().slice(0, 500) || null : null
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const where: any = {}
-  if (statuses.length === 1)   where.status   = statuses[0]
-  if (statuses.length > 1)     where.status   = { in: statuses }
-  if (priorities.length === 1) where.priority = priorities[0]
-  if (priorities.length > 1)   where.priority = { in: priorities }
-  // Tags: task must contain ALL selected tags (every tag is present in the array)
-  if (tags.length > 0)         where.tags = { hasEvery: tags }
-  if (search) {
-    where.OR = [
-      { title: { contains: search, mode: 'insensitive' } },
-      { description: { contains: search, mode: 'insensitive' } },
-    ]
+    // Validate date params — reject anything that doesn't match YYYY-MM-DD
+    const dateFrom = rawDateFrom && DATE_RE.test(rawDateFrom) ? rawDateFrom : null
+    const dateTo   = rawDateTo   && DATE_RE.test(rawDateTo)   ? rawDateTo   : null
+
+    // Parse comma-separated multi-value filters
+    const statuses   = statusParam   ? statusParam.split(',').filter(Boolean)   : []
+    const priorities = priorityParam ? priorityParam.split(',').filter(Boolean) : []
+    const tags       = tagsParam     ? tagsParam.split(',').filter(Boolean)     : []
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = {}
+    if (statuses.length === 1)   where.status   = statuses[0]
+    if (statuses.length > 1)     where.status   = { in: statuses }
+    if (priorities.length === 1) where.priority = priorities[0]
+    if (priorities.length > 1)   where.priority = { in: priorities }
+    // Tags: task must contain ALL selected tags (every tag is present in the array)
+    if (tags.length > 0)         where.tags = { hasEvery: tags }
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+      ]
+    }
+    if (dateFrom || dateTo) {
+      where.dueDate = {}
+      if (dateFrom) where.dueDate.gte = new Date(dateFrom)
+      if (dateTo)   where.dueDate.lte = new Date(dateTo)
+    }
+
+    const rawTasks = await prisma.task.findMany({
+      where,
+      orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
+    })
+
+    let tasks = rawTasks.map(serializeTask)
+    if (overdueOnly) tasks = tasks.filter((t: Task) => isOverdue(t.dueDate, t.status, t.endTime))
+    if (todayOnly)   tasks = tasks.filter((t: Task) => isDueToday(t.dueDate))
+
+    return NextResponse.json({ tasks, total: tasks.length })
+  } catch (err) {
+    console.error('[GET /api/tasks]', err)
+    return NextResponse.json({ error: 'Failed to fetch tasks' }, { status: 500 })
   }
-  if (dateFrom || dateTo) {
-    where.dueDate = {}
-    if (dateFrom) where.dueDate.gte = new Date(dateFrom)
-    if (dateTo) where.dueDate.lte = new Date(dateTo)
-  }
-
-  const rawTasks = await prisma.task.findMany({
-    where,
-    orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
-  })
-
-  let tasks = rawTasks.map(serializeTask)
-  if (overdueOnly) tasks = tasks.filter((t: Task) => isOverdue(t.dueDate, t.status, t.endTime))
-  if (todayOnly) tasks = tasks.filter((t: Task) => isDueToday(t.dueDate))
-
-  return NextResponse.json({ tasks, total: tasks.length })
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json()
-
-  const parsed = TaskSchema.safeParse(body)
-  if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid input', issues: parsed.error.issues }, { status: 400 })
-  }
-  const data = parsed.data
-
-  const task = await prisma.task.create({
-    data: {
-      title: data.title,
-      description: data.description ?? null,
-      status: data.status ?? 'TODO',
-      priority: data.priority ?? 'MEDIUM',
-      startDate: data.startDate ? new Date(data.startDate) : null,
-      dueDate: data.dueDate ? new Date(data.dueDate) : null,
-      estimatedMinutes: data.estimatedMinutes ?? null,
-      startTime: data.startTime ?? null,
-      endTime: data.endTime ?? null,
-      tags: data.tags ?? [],
-      recurrence: data.recurrence ?? null,
-      recurrenceInterval: data.recurrenceInterval ?? null,
-      recurrenceEndDate: data.recurrenceEndDate ? new Date(data.recurrenceEndDate) : null,
-    },
-  })
-
-  const serialized = serializeTask(task)
-
-  if (await isGoogleConnected()) {
+  try {
+    let body: unknown
     try {
-      const eventId = await createCalendarEvent(serialized)
-      const updated = await prisma.task.update({
-        where: { id: task.id },
-        data: { googleCalendarEventId: eventId, googleCalendarSynced: true },
-      })
-      return NextResponse.json({ task: serializeTask(updated) }, { status: 201 })
+      body = await req.json()
     } catch {
-      // sync failed — still return task
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
-  }
 
-  return NextResponse.json({ task: serialized }, { status: 201 })
+    const parsed = TaskSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid input', issues: parsed.error.issues }, { status: 400 })
+    }
+    const data = parsed.data
+
+    const task = await prisma.task.create({
+      data: {
+        title: data.title,
+        description: data.description ?? null,
+        status: data.status ?? 'TODO',
+        priority: data.priority ?? 'MEDIUM',
+        startDate: data.startDate ? new Date(data.startDate) : null,
+        dueDate: data.dueDate ? new Date(data.dueDate) : null,
+        estimatedMinutes: data.estimatedMinutes ?? null,
+        startTime: data.startTime ?? null,
+        endTime: data.endTime ?? null,
+        tags: data.tags ?? [],
+        recurrence: data.recurrence ?? null,
+        recurrenceInterval: data.recurrenceInterval ?? null,
+        recurrenceEndDate: data.recurrenceEndDate ? new Date(data.recurrenceEndDate) : null,
+      },
+    })
+
+    const serialized = serializeTask(task)
+
+    if (await isGoogleConnected()) {
+      try {
+        const eventId = await createCalendarEvent(serialized)
+        const updated = await prisma.task.update({
+          where: { id: task.id },
+          data: { googleCalendarEventId: eventId, googleCalendarSynced: true },
+        })
+        return NextResponse.json({ task: serializeTask(updated) }, { status: 201 })
+      } catch (syncErr) {
+        console.error('[Google Calendar create sync error]', syncErr)
+        // Non-fatal: return the task even if calendar sync failed
+      }
+    }
+
+    return NextResponse.json({ task: serialized }, { status: 201 })
+  } catch (err) {
+    console.error('[POST /api/tasks]', err)
+    return NextResponse.json({ error: 'Failed to create task' }, { status: 500 })
+  }
 }

@@ -41,17 +41,26 @@ export async function getAuthenticatedClient() {
     expiry_date: token.expiresAt.getTime(),
   })
 
-  // Auto-refresh if expired
-  if (new Date() >= token.expiresAt) {
-    const { credentials } = await oauth2Client.refreshAccessToken()
-    await prisma.googleToken.update({
-      where: { id: 'singleton' },
-      data: {
-        accessToken: credentials.access_token!,
-        expiresAt: new Date(credentials.expiry_date!),
-      },
-    })
-    oauth2Client.setCredentials(credentials)
+  // Refresh proactively if the token expires within the next 5 minutes,
+  // so we don't hit mid-request expiry under concurrent workloads.
+  const BUFFER_MS = 5 * 60 * 1000
+  if (Date.now() >= token.expiresAt.getTime() - BUFFER_MS) {
+    try {
+      const { credentials } = await oauth2Client.refreshAccessToken()
+      await prisma.googleToken.update({
+        where: { id: 'singleton' },
+        data: {
+          accessToken: credentials.access_token!,
+          expiresAt: new Date(credentials.expiry_date!),
+        },
+      })
+      oauth2Client.setCredentials(credentials)
+    } catch (err) {
+      console.error('[Google OAuth token refresh failed]', err)
+      throw new Error(
+        'Google Calendar access token expired and could not be refreshed. Please reconnect.'
+      )
+    }
   }
 
   return oauth2Client

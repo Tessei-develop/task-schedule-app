@@ -36,11 +36,16 @@ const RECURRENCE_LABELS: Record<string, string> = {
   DAILY: '↻ Daily', WEEKLY: '↻ Weekly', MONTHLY: '↻ Monthly', YEARLY: '↻ Yearly',
 }
 
-function formatTime(t: string) {
-  // "HH:MM" → "h:MM AM/PM"
-  const [h, m] = t.split(':').map(Number)
+function formatTime(t: string | null | undefined): string | null {
+  if (!t) return null
+  // Validate "HH:MM" before parsing to avoid bad output on corrupt data
+  const match = t.match(/^(\d{1,2}):(\d{2})$/)
+  if (!match) return null
+  const h = parseInt(match[1], 10)
+  const m = parseInt(match[2], 10)
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null
   const ampm = h >= 12 ? 'PM' : 'AM'
-  const hour = h % 12 || 12
+  const hour = h === 0 ? 12 : h > 12 ? h - 12 : h
   return `${hour}:${String(m).padStart(2, '0')} ${ampm}`
 }
 
@@ -74,10 +79,12 @@ export function TaskCard({ task }: { task: Task }) {
     }
   }
 
-  const timeLabel = task.startTime
-    ? task.endTime
-      ? `${formatTime(task.startTime)} – ${formatTime(task.endTime)}`
-      : formatTime(task.startTime)
+  const startFormatted = formatTime(task.startTime)
+  const endFormatted   = formatTime(task.endTime)
+  const timeLabel = startFormatted
+    ? endFormatted
+      ? `${startFormatted} – ${endFormatted}`
+      : startFormatted
     : null
 
   return (
