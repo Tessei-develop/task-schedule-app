@@ -109,7 +109,24 @@ function shiftDate(dateStr: string, days: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function taskToEventBody(task: Task) {
+/**
+ * Fetch the user's primary Google Calendar timezone.
+ * This is required because the code runs on Vercel's server (UTC), so
+ * Intl.DateTimeFormat().resolvedOptions().timeZone would return 'UTC' rather
+ * than the user's actual timezone (e.g. 'Asia/Tokyo').
+ */
+async function getCalendarTimezone(
+  calendar: ReturnType<typeof google.calendar>
+): Promise<string> {
+  try {
+    const res = await calendar.calendars.get({ calendarId: 'primary' })
+    return res.data.timeZone ?? 'UTC'
+  } catch {
+    return 'UTC'
+  }
+}
+
+function taskToEventBody(task: Task, timeZone: string) {
   // Use startDate for the event start, dueDate for the event end.
   const duePart   = task.dueDate   ? task.dueDate.slice(0, 10)   : new Date().toISOString().slice(0, 10)
   const startPart = task.startDate ? task.startDate.slice(0, 10) : duePart
@@ -117,8 +134,6 @@ function taskToEventBody(task: Task) {
   type EventDateTime = { date?: string; dateTime?: string; timeZone?: string }
   let start: EventDateTime
   let end: EventDateTime
-
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 
   if (task.startTime && task.endTime) {
     // Fully timed event — guard against endTime ≤ startTime (e.g. overnight
@@ -165,9 +180,10 @@ function taskToEventBody(task: Task) {
 export async function createCalendarEvent(task: Task): Promise<string> {
   const auth = await getAuthenticatedClient()
   const calendar = google.calendar({ version: 'v3', auth })
+  const timeZone = await getCalendarTimezone(calendar)
   const res = await calendar.events.insert({
     calendarId: 'primary',
-    requestBody: taskToEventBody(task),
+    requestBody: taskToEventBody(task, timeZone),
   })
   return res.data.id!
 }
@@ -176,7 +192,8 @@ export async function updateCalendarEvent(task: Task): Promise<void> {
   if (!task.googleCalendarEventId) return
   const auth = await getAuthenticatedClient()
   const calendar = google.calendar({ version: 'v3', auth })
-  const body = taskToEventBody(task)
+  const timeZone = await getCalendarTimezone(calendar)
+  const body = taskToEventBody(task, timeZone)
   if (task.status === 'DONE') body.summary = `✓ ${task.title}`
   if (task.status === 'CANCELLED') body.summary = `✗ ${task.title}`
   await calendar.events.update({
@@ -194,16 +211,26 @@ export async function deleteCalendarEvent(eventId: string): Promise<void> {
 
 // ─── Google Calendar → App ────────────────────────────────────────────────────
 
-/** Extract a local-tz "HH:MM" time string from a Google dateTime value. */
+/**
+ * Extract "HH:MM" directly from an RFC3339 datetime string.
+ * Google returns event times in the calendar's own timezone, e.g.:
+ *   "2026-04-19T10:00:00+09:00"  →  "10:00"
+ * Parsing via new Date().getHours() would use the SERVER's timezone (UTC on
+ * Vercel) and return the wrong hour. Slicing avoids that entirely.
+ */
 function extractTime(dateTime: string): string {
-  const d = new Date(dateTime)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  const match = dateTime.match(/T(\d{2}:\d{2})/)
+  return match ? match[1] : '00:00'
 }
 
-/** Extract a "YYYY-MM-DD" date string from a Google dateTime / date value. */
+/**
+ * Extract "YYYY-MM-DD" directly from an RFC3339 datetime string.
+ * "2026-04-19T10:00:00+09:00" → "2026-04-19"
+ * Avoids server-timezone date shifting (e.g. early-morning JST events
+ * appearing as the previous day when parsed in UTC).
+ */
 function extractDate(dateTime: string): string {
-  const d = new Date(dateTime)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return dateTime.slice(0, 10)
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
