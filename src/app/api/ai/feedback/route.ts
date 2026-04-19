@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { groq, GROQ_MODEL } from '@/lib/groq'
+import { getGroq, GROQ_MODEL } from '@/lib/groq'
 import { buildFeedbackPrompt } from '@/lib/ai-prompts'
 import { isOverdue, todayISO } from '@/lib/date-utils'
 import { subDays } from 'date-fns'
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
 
   const { system, user } = buildFeedbackPrompt(metrics)
 
-  const completion = await groq.chat.completions.create({
+  const completion = await getGroq().chat.completions.create({
     model: GROQ_MODEL,
     messages: [
       { role: 'system', content: system },
