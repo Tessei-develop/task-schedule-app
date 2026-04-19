@@ -29,10 +29,10 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className={geist.className}>
-      <body className="min-h-screen bg-gray-50 dark:bg-gray-950 flex">
+    <html lang="en" className={`${geist.className} h-full`}>
+      <body className="h-full overflow-hidden bg-gray-50 dark:bg-gray-950 flex">
         <Sidebar />
-        <main className="flex-1 overflow-hidden flex flex-col">
+        <main className="flex-1 overflow-hidden flex flex-col min-w-0">
           {children}
         </main>
         <AutoSync />
