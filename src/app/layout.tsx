@@ -32,7 +32,7 @@ export default function RootLayout({
     <html lang="en" className={geist.className}>
       <body className="min-h-screen bg-gray-50 dark:bg-gray-950 flex">
         <Sidebar />
-        <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
+        <main className="flex-1 overflow-y-auto pb-28 md:pb-0">
           {children}
         </main>
         <AutoSync />

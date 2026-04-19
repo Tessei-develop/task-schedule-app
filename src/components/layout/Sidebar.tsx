@@ -112,6 +112,78 @@ function GoogleCalendarSection() {
   )
 }
 
+function MobileGoogleCalendarBar() {
+  const [connected, setConnected] = useState<boolean | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const { fetchTasks } = useTaskStore()
+
+  useEffect(() => {
+    fetch('/api/google/status')
+      .then((r) => r.json())
+      .then((d) => setConnected(d.connected))
+      .catch(() => setConnected(false))
+  }, [])
+
+  const handleSync = async () => {
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/google/sync', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      await fetchTasks()
+      toast.success(`Synced! +${data.created} new, ${data.updated} updated`)
+    } catch (err) {
+      toast.error(`Sync failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  if (connected === null) return null
+
+  if (!connected) {
+    return (
+      <a
+        href="/api/google/auth"
+        className="flex items-center gap-2 text-xs text-gray-500 hover:text-indigo-600 transition-colors"
+      >
+        <CalendarCheck className="h-4 w-4 shrink-0" />
+        Connect Google Calendar
+      </a>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400 font-medium">
+        <CalendarCheck className="h-4 w-4 shrink-0" />
+        Google Calendar
+      </div>
+      <button
+        onClick={handleSync}
+        disabled={syncing}
+        className="flex items-center gap-1 text-xs text-gray-500 hover:text-indigo-600 transition-colors disabled:opacity-50"
+      >
+        {syncing
+          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          : <RefreshCw className="h-3.5 w-3.5" />}
+        Sync
+      </button>
+      <button
+        onClick={async () => {
+          await fetch('/api/google/status', { method: 'DELETE' })
+          setConnected(false)
+          toast.success('Disconnected')
+        }}
+        className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 transition-colors"
+      >
+        <Unlink className="h-3.5 w-3.5" />
+        Disconnect
+      </button>
+    </div>
+  )
+}
+
 export function Sidebar() {
   const pathname = usePathname()
   const openTaskForm = useUIStore((s) => s.openTaskForm)
@@ -159,6 +231,11 @@ export function Sidebar() {
           </div>
         </nav>
       </aside>
+
+      {/* Mobile Google Calendar bar — sits just above the bottom tab bar */}
+      <div className="md:hidden fixed bottom-[57px] left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 px-4 py-1.5">
+        <MobileGoogleCalendarBar />
+      </div>
 
       {/* Mobile bottom tab bar */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex items-center justify-around px-2 py-1">
