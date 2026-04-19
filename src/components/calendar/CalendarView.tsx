@@ -141,7 +141,7 @@ export function CalendarView() {
         eventClick={handleEventClick}
         dateClick={handleDateClick}
         eventDrop={handleEventDrop}
-        height="calc(100vh - 180px)"
+        height="calc(100vh - 240px)"
         stickyHeaderDates
         dayMaxEvents={3}
       />
