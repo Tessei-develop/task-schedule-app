@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useTaskStore } from '@/store/taskStore'
-import { Search, ChevronDown, X, Check } from 'lucide-react'
+import { Search, ChevronDown, X, Check, SlidersHorizontal } from 'lucide-react'
 
 // ─── Generic multi-select dropdown ───────────────────────────────────────────
 
@@ -22,7 +22,6 @@ function MultiSelect({ label, options, selected, onChange }: MultiSelectProps) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
-  // Close on outside click
   useEffect(() => {
     function handle(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
@@ -50,7 +49,6 @@ function MultiSelect({ label, options, selected, onChange }: MultiSelectProps) {
 
   return (
     <div ref={ref} className="relative">
-      {/* Label above the button */}
       <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-0.5 ml-0.5">
         {label}
       </p>
@@ -85,7 +83,7 @@ function MultiSelect({ label, options, selected, onChange }: MultiSelectProps) {
   )
 }
 
-// ─── Status / Priority / Tag option sets ─────────────────────────────────────
+// ─── Options ──────────────────────────────────────────────────────────────────
 
 const STATUS_OPTIONS: Option[] = [
   { value: 'TODO',        label: 'To Do' },
@@ -106,14 +104,22 @@ const PRIORITY_OPTIONS: Option[] = [
 export function TaskFilters() {
   const { filters, setFilters, clearFilters, tasks } = useTaskStore()
   const [search, setSearch] = useState(filters.search ?? '')
+  const [mobileOpen, setMobileOpen] = useState(false)
 
-  // Collect all distinct tags from loaded tasks for the Tag filter options
   const allTags = Array.from(new Set(tasks.flatMap((t) => t.tags))).sort()
   const tagOptions: Option[] = allTags.map((t) => ({ value: t, label: t }))
 
   const selectedStatuses   = filters.status   ?? []
   const selectedPriorities = filters.priority ?? []
   const selectedTags       = filters.tags     ?? []
+
+  // Count active non-default filters for the mobile badge
+  const defaultStatuses = ['TODO', 'IN_PROGRESS']
+  const activeFilterCount =
+    (selectedStatuses.some(s => !defaultStatuses.includes(s)) || selectedStatuses.length !== defaultStatuses.length ? 1 : 0) +
+    (selectedPriorities.length > 0 ? 1 : 0) +
+    (selectedTags.length > 0 ? 1 : 0) +
+    (filters.search ? 1 : 0)
 
   const hasFilters =
     selectedStatuses.length > 0 ||
@@ -126,13 +132,12 @@ export function TaskFilters() {
     setFilters({ ...filters, search: search || undefined })
   }
 
-  return (
+  // ── Shared filter panel content ──
+  const filterPanel = (
     <div className="flex flex-wrap items-end gap-3">
       {/* Search */}
       <div>
-        <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-0.5 ml-0.5">
-          Search
-        </p>
+        <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-0.5 ml-0.5">Search</p>
         <form onSubmit={handleSearch} className="flex items-center gap-1">
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
@@ -147,73 +152,68 @@ export function TaskFilters() {
         </form>
       </div>
 
-      {/* Status multi-select */}
-      <MultiSelect
-        label="Status"
-        options={STATUS_OPTIONS}
-        selected={selectedStatuses}
-        onChange={(v) => setFilters({ ...filters, status: v })}
-      />
-
-      {/* Priority multi-select */}
-      <MultiSelect
-        label="Priority"
-        options={PRIORITY_OPTIONS}
-        selected={selectedPriorities}
-        onChange={(v) => setFilters({ ...filters, priority: v })}
-      />
-
-      {/* Tag multi-select — only shown when there are tags to filter by */}
+      <MultiSelect label="Status"   options={STATUS_OPTIONS}   selected={selectedStatuses}   onChange={(v) => setFilters({ ...filters, status: v })} />
+      <MultiSelect label="Priority" options={PRIORITY_OPTIONS} selected={selectedPriorities} onChange={(v) => setFilters({ ...filters, priority: v })} />
       {tagOptions.length > 0 && (
-        <MultiSelect
-          label="Tag"
-          options={tagOptions}
-          selected={selectedTags}
-          onChange={(v) => setFilters({ ...filters, tags: v })}
-        />
+        <MultiSelect label="Tag" options={tagOptions} selected={selectedTags} onChange={(v) => setFilters({ ...filters, tags: v })} />
       )}
 
-      {/* Active filter badges + clear */}
+      {/* Active filter badges */}
       {hasFilters && (
         <div className="flex items-center gap-1.5 flex-wrap">
           {selectedStatuses.map((s) => (
             <Badge key={s} variant="secondary" className="gap-1 text-xs">
               {STATUS_OPTIONS.find((o) => o.value === s)?.label ?? s}
-              <X
-                className="h-3 w-3 cursor-pointer"
-                onClick={() => setFilters({ ...filters, status: selectedStatuses.filter((v) => v !== s) })}
-              />
+              <X className="h-3 w-3 cursor-pointer" onClick={() => setFilters({ ...filters, status: selectedStatuses.filter((v) => v !== s) })} />
             </Badge>
           ))}
           {selectedPriorities.map((p) => (
             <Badge key={p} variant="secondary" className="gap-1 text-xs">
               {PRIORITY_OPTIONS.find((o) => o.value === p)?.label ?? p}
-              <X
-                className="h-3 w-3 cursor-pointer"
-                onClick={() => setFilters({ ...filters, priority: selectedPriorities.filter((v) => v !== p) })}
-              />
+              <X className="h-3 w-3 cursor-pointer" onClick={() => setFilters({ ...filters, priority: selectedPriorities.filter((v) => v !== p) })} />
             </Badge>
           ))}
           {selectedTags.map((t) => (
             <Badge key={t} variant="secondary" className="gap-1 text-xs">
               #{t}
-              <X
-                className="h-3 w-3 cursor-pointer"
-                onClick={() => setFilters({ ...filters, tags: selectedTags.filter((v) => v !== t) })}
-              />
+              <X className="h-3 w-3 cursor-pointer" onClick={() => setFilters({ ...filters, tags: selectedTags.filter((v) => v !== t) })} />
             </Badge>
           ))}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => { setSearch(''); clearFilters() }}
-            className="h-7 px-2 text-xs text-gray-500 hover:text-gray-900"
-          >
-            <X className="h-3 w-3 mr-1" />
-            Clear all
+          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); clearFilters() }} className="h-7 px-2 text-xs text-gray-500 hover:text-gray-900">
+            <X className="h-3 w-3 mr-1" />Clear all
           </Button>
         </div>
       )}
     </div>
+  )
+
+  return (
+    <>
+      {/* ── Desktop: always visible ── */}
+      <div className="hidden md:block">{filterPanel}</div>
+
+      {/* ── Mobile: collapsed toggle bar ── */}
+      <div className="md:hidden">
+        <button
+          onClick={() => setMobileOpen((o) => !o)}
+          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg border border-input bg-background text-sm shadow-sm"
+        >
+          <SlidersHorizontal className="h-4 w-4 text-gray-500 shrink-0" />
+          <span className="flex-1 text-left text-gray-600 dark:text-gray-300">Filters</span>
+          {activeFilterCount > 0 && (
+            <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-indigo-600 text-white text-[10px] font-bold shrink-0">
+              {activeFilterCount}
+            </span>
+          )}
+          <ChevronDown className={`h-4 w-4 text-gray-400 shrink-0 transition-transform ${mobileOpen ? 'rotate-180' : ''}`} />
+        </button>
+
+        {mobileOpen && (
+          <div className="mt-2 p-3 rounded-lg border border-input bg-background shadow-sm">
+            {filterPanel}
+          </div>
+        )}
+      </div>
+    </>
   )
 }

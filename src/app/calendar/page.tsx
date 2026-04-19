@@ -11,9 +11,9 @@ const CalendarView = dynamic(
 
 export default function CalendarPage() {
   return (
-    <div className="flex flex-col h-screen p-4 md:p-6 max-w-7xl mx-auto">
-      <div className="shrink-0 mb-3">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">Calendar</h1>
+    <div className="flex flex-col h-screen p-3 md:p-6 max-w-7xl mx-auto">
+      <div className="shrink-0 mb-2 md:mb-3">
+        <h1 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white mb-2 md:mb-3">Calendar</h1>
         <TaskFilters />
       </div>
       <div className="bg-white dark:bg-gray-900 rounded-lg border p-2 md:p-4 flex-1 min-h-0 overflow-hidden">
