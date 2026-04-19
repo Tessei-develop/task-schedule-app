@@ -132,10 +132,11 @@ export function CalendarView() {
         headerToolbar={{
           left: 'prev,next today',
           center: 'title',
-          right: 'dayGridMonth,timeGridWeek',
+          right: 'dayGridMonth,timeGridWeek,timeGridDay',
         }}
         views={{
           timeGridWeek: { buttonText: 'week' },
+          timeGridDay: { buttonText: 'day' },
           dayGridMonth: { buttonText: 'month' },
         }}
         events={events}
