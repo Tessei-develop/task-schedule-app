@@ -128,3 +128,31 @@
     @apply font-sans;
   }
 }
+
+/* ── FullCalendar mobile compacting ──────────────────────────────────────── */
+@media (max-width: 767px) {
+  /* Toolbar: smaller prev/next/today buttons and title */
+  .fc .fc-toolbar-title          { font-size: 0.95rem; }
+  .fc .fc-button                 { font-size: 0.7rem !important; padding: 0.2rem 0.45rem !important; }
+  .fc .fc-toolbar.fc-header-toolbar { gap: 0.25rem; flex-wrap: wrap; }
+
+  /* Day header row (Sun, Mon …) */
+  .fc .fc-col-header-cell-cushion { font-size: 0.65rem; padding: 2px 0; }
+
+  /* Day number inside each cell */
+  .fc .fc-daygrid-day-number     { font-size: 0.7rem; padding: 2px 4px; }
+
+  /* Event chips */
+  .fc .fc-daygrid-event          { font-size: 0.62rem; padding: 0 2px; }
+  .fc .fc-daygrid-dot-event .fc-event-title { font-size: 0.62rem; }
+
+  /* "more" link (+N more) */
+  .fc .fc-daygrid-more-link      { font-size: 0.6rem; }
+
+  /* Week/day time labels */
+  .fc .fc-timegrid-slot-label-cushion { font-size: 0.62rem; }
+  .fc .fc-timegrid-event .fc-event-title { font-size: 0.65rem; }
+
+  /* Reduce cell height in month view */
+  .fc .fc-daygrid-day-frame      { min-height: 48px; }
+}
