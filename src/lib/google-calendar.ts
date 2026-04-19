@@ -66,8 +66,12 @@ export async function getAuthenticatedClient() {
   return oauth2Client
 }
 
-export function getAuthUrl(): string {
-  const oauth2Client = getOAuth2Client()
+export function getAuthUrl(redirectUri: string): string {
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    redirectUri,
+  )
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: ['https://www.googleapis.com/auth/calendar.events'],
@@ -75,8 +79,12 @@ export function getAuthUrl(): string {
   })
 }
 
-export async function storeTokens(code: string): Promise<void> {
-  const oauth2Client = getOAuth2Client()
+export async function storeTokens(code: string, redirectUri: string): Promise<void> {
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    redirectUri,
+  )
   const { tokens } = await oauth2Client.getToken(code)
   await prisma.googleToken.upsert({
     where: { id: 'singleton' },
