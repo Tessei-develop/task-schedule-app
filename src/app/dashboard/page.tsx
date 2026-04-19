@@ -9,7 +9,8 @@ import { AIFeedbackWidget } from '@/components/dashboard/widgets/AIFeedbackWidge
 
 export default function DashboardPage() {
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto">
+    <div className="flex-1 overflow-y-auto">
+    <div className="p-4 pb-28 md:pb-6 md:p-6 max-w-7xl mx-auto">
       <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Dashboard</h1>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -31,6 +32,7 @@ export default function DashboardPage() {
           <AIFeedbackWidget />
         </div>
       </div>
+    </div>
     </div>
   )
 }
