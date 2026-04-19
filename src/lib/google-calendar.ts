@@ -212,51 +212,75 @@ export async function deleteCalendarEvent(eventId: string): Promise<void> {
 // ─── Google Calendar → App ────────────────────────────────────────────────────
 
 /**
- * Extract "HH:MM" directly from an RFC3339 datetime string.
- * Google returns event times in the calendar's own timezone, e.g.:
- *   "2026-04-19T10:00:00+09:00"  →  "10:00"
- * Parsing via new Date().getHours() would use the SERVER's timezone (UTC on
- * Vercel) and return the wrong hour. Slicing avoids that entirely.
+ * Convert any RFC3339 datetime string to "HH:MM" in the user's local timezone.
+ *
+ * Why Intl API instead of slicing the string:
+ *   - Events pushed by the OLD app code had timeZone:"UTC", so Google returns
+ *     them as "2026-04-19T12:15:00Z" (UTC). Slicing gives "12:15" but the
+ *     correct local time for a JST user is "21:15".
+ *   - New events pushed with the correct timezone return "+09:00" strings, where
+ *     slicing works — but we must handle both cases for existing data.
+ *   - The Intl API correctly converts any RFC3339 timestamp to the target
+ *     timezone regardless of what offset the string itself carries.
  */
-function extractTime(dateTime: string): string {
-  const match = dateTime.match(/T(\d{2}:\d{2})/)
-  return match ? match[1] : '00:00'
+function extractLocalTime(dateTime: string, timeZone: string): string {
+  const date = new Date(dateTime)
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23', // ensures 00–23, never "24"
+  }).formatToParts(date)
+  const hour   = parts.find(p => p.type === 'hour')?.value   ?? '00'
+  const minute = parts.find(p => p.type === 'minute')?.value ?? '00'
+  return `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`
 }
 
 /**
- * Extract "YYYY-MM-DD" directly from an RFC3339 datetime string.
- * "2026-04-19T10:00:00+09:00" → "2026-04-19"
- * Avoids server-timezone date shifting (e.g. early-morning JST events
- * appearing as the previous day when parsed in UTC).
+ * Convert any RFC3339 datetime string to "YYYY-MM-DD" in the user's local timezone.
+ * Handles the same UTC / local-offset ambiguity as extractLocalTime.
  */
-function extractDate(dateTime: string): string {
-  return dateTime.slice(0, 10)
+function extractLocalDate(dateTime: string, timeZone: string): string {
+  const date = new Date(dateTime)
+  const parts = new Intl.DateTimeFormat('en-CA', { // en-CA → YYYY-MM-DD ordering
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date)
+  const year  = parts.find(p => p.type === 'year')?.value  ?? ''
+  const month = parts.find(p => p.type === 'month')?.value ?? ''
+  const day   = parts.find(p => p.type === 'day')?.value   ?? ''
+  return `${year}-${month}-${day}`
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function eventToTaskFields(event: any) {
+function eventToTaskFields(event: any, userTimeZone: string) {
   const isTimedEvent = !!(event.start?.dateTime)
 
-  // For all-day events Google returns the end as an exclusive date (the day
-  // after the last visible day). Subtract 1 day to get the actual due date.
-  const rawDueDate = event.end?.dateTime
-    ? extractDate(event.end.dateTime)
-    : event.end?.date ?? null
-  const dueDate = rawDueDate && !isTimedEvent
-    ? shiftDate(rawDueDate, -1)
-    : rawDueDate
+  // Timed events: convert start/end datetimes to the user's local timezone.
+  // All-day events: use the date strings directly (no timezone conversion needed).
+  let startDate: string | null = null
+  let dueDate:   string | null = null
+  let startTime: string | null = null
+  let endTime:   string | null = null
 
-  const startDate = event.start?.dateTime
-    ? extractDate(event.start.dateTime)
-    : event.start?.date ?? null
-
-  const startTime = isTimedEvent && event.start?.dateTime
-    ? extractTime(event.start.dateTime)
-    : null
-
-  const endTime = isTimedEvent && event.end?.dateTime
-    ? extractTime(event.end.dateTime)
-    : null
+  if (isTimedEvent) {
+    if (event.start?.dateTime) {
+      startDate = extractLocalDate(event.start.dateTime, userTimeZone)
+      startTime = extractLocalTime(event.start.dateTime, userTimeZone)
+    }
+    if (event.end?.dateTime) {
+      // For timed events the end date is the same day (or next day for overnight).
+      // We use it as dueDate directly (no exclusive-end correction needed).
+      dueDate = extractLocalDate(event.end.dateTime, userTimeZone)
+      endTime = extractLocalTime(event.end.dateTime, userTimeZone)
+    }
+  } else {
+    // All-day: Google end date is exclusive — subtract 1 day for the actual due date.
+    startDate = event.start?.date ?? null
+    dueDate   = event.end?.date ? shiftDate(event.end.date, -1) : null
+  }
 
   return {
     title: (event.summary ?? 'Untitled').replace(/^[✓✗]\s*/, ''),
@@ -265,7 +289,7 @@ function eventToTaskFields(event: any) {
           .split('\n---\n')[0]  // strip our metadata footer
           .trim() || null
       : null,
-    dueDate: dueDate ? new Date(dueDate) : null,
+    dueDate:   dueDate   ? new Date(dueDate)   : null,
     startDate: startDate ? new Date(startDate) : null,
     startTime,
     endTime,
@@ -288,6 +312,10 @@ export async function syncFromGoogleCalendar(options?: { force?: boolean }): Pro
   const auth = await getAuthenticatedClient()
   const calendar = google.calendar({ version: 'v3', auth })
   const tokenRow = await prisma.googleToken.findUnique({ where: { id: 'singleton' } })
+
+  // Fetch user's calendar timezone once — used when converting event datetimes
+  // to local time (handles both UTC-stored old events and offset-aware new ones).
+  const userTimeZone = await getCalendarTimezone(calendar)
 
   // On forced full sync, clear the stored token so we fetch everything fresh
   if (options?.force && tokenRow?.syncToken) {
@@ -353,7 +381,7 @@ export async function syncFromGoogleCalendar(options?: { force?: boolean }): Pro
         continue
       }
 
-      const fields = eventToTaskFields(event)
+      const fields = eventToTaskFields(event, userTimeZone)
 
       if (existing) {
         // Always update linked tasks — this covers app-created events that the
