@@ -337,6 +337,92 @@ export interface SyncResult {
   created: number
   updated: number
   deleted: number
+  skipped: number   // app version was newer — Google's data was intentionally ignored
+  pushed: number    // tasks pushed from app → Google (create or update)
+  pushFailed: number
+}
+
+// ─── Serialize Prisma task → Task type (for calendar functions) ───────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function serializePrismaTask(t: any): Task {
+  return {
+    ...t,
+    startDate:        t.startDate?.toISOString()        ?? null,
+    dueDate:          t.dueDate?.toISOString()          ?? null,
+    completedAt:      t.completedAt?.toISOString()      ?? null,
+    recurrenceEndDate:t.recurrenceEndDate?.toISOString()?? null,
+    createdAt:        t.createdAt.toISOString(),
+    updatedAt:        t.updatedAt.toISOString(),
+    status:           t.status   as Task['status'],
+    priority:         t.priority as Task['priority'],
+    recurrence:       (t.recurrence as Task['recurrence']) ?? null,
+  }
+}
+
+/**
+ * Push any app tasks that were never synced to Google Calendar (or whose last
+ * push failed) up to Google Calendar.  Called at the end of the manual sync so
+ * transient failures are automatically retried the next time the user syncs.
+ *
+ * A task needs pushing when googleCalendarSynced === false:
+ *   - googleCalendarEventId is null  → create a new calendar event
+ *   - googleCalendarEventId is set   → update the existing event (e.g. edit failed earlier)
+ *
+ * Cancelled tasks with no event ID are skipped (no point creating an event for
+ * a task the user already cancelled in the app).
+ */
+export async function pushPendingTasksToGoogle(): Promise<{ pushed: number; failed: number }> {
+  const auth     = await getAuthenticatedClient()
+  const calendar = google.calendar({ version: 'v3', auth })
+  const timeZone = await getCalendarTimezone(calendar)
+
+  const pending = await prisma.task.findMany({
+    where: {
+      googleCalendarSynced: false,
+      // Skip cancelled tasks that have never been pushed — nothing useful to show
+      NOT: { AND: [{ googleCalendarEventId: null }, { status: 'CANCELLED' }] },
+    },
+  })
+
+  let pushed = 0, failed = 0
+
+  for (const task of pending) {
+    const serialized = serializePrismaTask(task)
+    try {
+      if (task.googleCalendarEventId) {
+        // Event exists on Google but our last update didn't propagate
+        const body = taskToEventBody(serialized, timeZone)
+        if (task.status === 'DONE')      body.summary = `✓ ${task.title}`
+        if (task.status === 'CANCELLED') body.summary = `✗ ${task.title}`
+        await calendar.events.update({
+          calendarId: 'primary',
+          eventId:    task.googleCalendarEventId,
+          requestBody: body,
+        })
+      } else {
+        // Task was never pushed — create a new calendar event
+        const res = await calendar.events.insert({
+          calendarId:  'primary',
+          requestBody: taskToEventBody(serialized, timeZone),
+        })
+        await prisma.task.update({
+          where: { id: task.id },
+          data:  { googleCalendarEventId: res.data.id! },
+        })
+      }
+      await prisma.task.update({
+        where: { id: task.id },
+        data:  { googleCalendarSynced: true },
+      })
+      pushed++
+    } catch (err) {
+      console.error(`[pushPendingTasksToGoogle] task ${task.id} failed:`, err)
+      failed++
+    }
+  }
+
+  return { pushed, failed }
 }
 
 /**
@@ -367,7 +453,7 @@ export async function syncFromGoogleCalendar(options?: { force?: boolean }): Pro
     params.maxResults = 2500
   }
 
-  let created = 0, updated = 0, deleted = 0
+  let created = 0, updated = 0, deleted = 0, skipped = 0
   let pageToken: string | undefined
   let nextSyncToken: string | undefined
   // Timezone is read from the first events.list response (res.data.timeZone).
@@ -423,9 +509,16 @@ export async function syncFromGoogleCalendar(options?: { force?: boolean }): Pro
       const fields = eventToTaskFields(event, userTimeZone)
 
       if (existing) {
-        // Always update linked tasks — this covers app-created events that the
-        // user later edited in Google Calendar (they still carry APP_MARKER but
-        // we must reflect the user's changes back into the app).
+        // Last-write-wins conflict resolution:
+        //   If the app's task was updated MORE RECENTLY than Google's event, the
+        //   user made a change in the app that hasn't been pushed yet (or the push
+        //   failed). Don't overwrite it — the push-pending step will retry the push.
+        //   If Google's event is newer (or equal), pull Google's version in.
+        const googleUpdated = event.updated ? new Date(event.updated) : null
+        if (googleUpdated && existing.updatedAt > googleUpdated) {
+          skipped++
+          continue
+        }
         await prisma.task.update({
           where: { id: existing.id },
           data: { ...fields, googleCalendarSynced: true },
@@ -458,5 +551,5 @@ export async function syncFromGoogleCalendar(options?: { force?: boolean }): Pro
     })
   }
 
-  return { created, updated, deleted }
+  return { created, updated, deleted, skipped, pushed: 0, pushFailed: 0 }
 }

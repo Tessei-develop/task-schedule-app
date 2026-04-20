@@ -172,13 +172,17 @@ export async function PATCH(
     if (task.googleCalendarEventId && await isGoogleConnected()) {
       try {
         await updateCalendarEvent(serialized)
-        // Re-mark as synced in case it was previously unset due to an error
         if (!task.googleCalendarSynced) {
           await prisma.task.update({ where: { id }, data: { googleCalendarSynced: true } })
         }
       } catch (err) {
         console.error('[Google Calendar update error]', err)
+        // Mark as unsynced so push-pending retries it on the next sync
+        await prisma.task.update({ where: { id }, data: { googleCalendarSynced: false } })
       }
+    } else if (!task.googleCalendarEventId && await isGoogleConnected()) {
+      // Task has no calendar event yet (initial push failed) — mark for retry
+      await prisma.task.update({ where: { id }, data: { googleCalendarSynced: false } })
     }
 
     return NextResponse.json({ task: serialized })

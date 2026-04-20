@@ -145,7 +145,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ task: serializeTask(updated) }, { status: 201 })
       } catch (syncErr) {
         console.error('[Google Calendar create sync error]', syncErr)
-        // Non-fatal: return the task even if calendar sync failed
+        // googleCalendarSynced stays false — push-pending will retry on next sync
       }
     }
 
