@@ -118,22 +118,27 @@ function shiftDate(dateStr: string, days: number): string {
 }
 
 /**
- * Fetch the user's primary Google Calendar timezone.
- * This is required because the code runs on Vercel's server (UTC), so
- * Intl.DateTimeFormat().resolvedOptions().timeZone would return 'UTC' rather
- * than the user's actual timezone (e.g. 'America/Chicago').
+ * Return the timezone to use when creating/updating calendar events from the app.
  *
- * Uses calendar.events.list (within our calendar.events OAuth scope) instead of
- * calendar.calendars.get (which requires calendar.readonly scope we don't have).
- * The events.list response includes a top-level `timeZone` field with the
- * calendar's configured timezone.
+ * Priority order:
+ *   1. USER_TIMEZONE env var — set this in Vercel to your local IANA timezone
+ *      (e.g. "America/Chicago"). This is the most reliable source and avoids
+ *      any API call.
+ *   2. events.list response timeZone — the calendar's *home* timezone.
+ *      NOTE: this is the timezone set when the calendar was created, which may
+ *      differ from your current location if you've moved. Prefer USER_TIMEZONE.
+ *   3. Fallback: 'UTC'
+ *
+ * This is intentionally NOT used for reverse-sync (Google → App). For that
+ * direction we use each event's own start.timeZone instead (see eventToTaskFields).
  */
 async function getCalendarTimezone(
   calendar: ReturnType<typeof google.calendar>
 ): Promise<string> {
+  // Explicit env var always wins — set this in Vercel dashboard
+  if (process.env.USER_TIMEZONE) return process.env.USER_TIMEZONE
+
   try {
-    // events.list is within the calendar.events scope we already request.
-    // Its response payload includes res.data.timeZone = the calendar's timezone.
     const res = await calendar.events.list({
       calendarId: 'primary',
       maxResults: 1,
@@ -273,10 +278,19 @@ function extractLocalDate(dateTime: string, timeZone: string): string {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function eventToTaskFields(event: any, userTimeZone: string) {
+function eventToTaskFields(event: any, calendarTimeZone: string) {
   const isTimedEvent = !!(event.start?.dateTime)
 
-  // Timed events: convert start/end datetimes to the user's local timezone.
+  // Timed events: convert datetimes using the event's OWN timezone first.
+  //
+  // Why event-level, not calendar-level:
+  //   Google Calendar stores each event with a start.timeZone that reflects the
+  //   device timezone at creation time (e.g. "America/Chicago" for a Chicago user).
+  //   The calendar's home timeZone (res.data.timeZone) is set when the calendar is
+  //   created and may differ if the user has moved (e.g. calendar created in Japan
+  //   but user now in Chicago). Using event.start.timeZone matches what Google
+  //   Calendar itself displays to the user.
+  //
   // All-day events: use the date strings directly (no timezone conversion needed).
   let startDate: string | null = null
   let dueDate:   string | null = null
@@ -284,15 +298,20 @@ function eventToTaskFields(event: any, userTimeZone: string) {
   let endTime:   string | null = null
 
   if (isTimedEvent) {
+    // Per-event timezone, with calendar-level as fallback, then USER_TIMEZONE env var
+    const envTz    = process.env.USER_TIMEZONE
+    const startTz  = event.start?.timeZone ?? envTz ?? calendarTimeZone
+    const endTz    = event.end?.timeZone   ?? startTz
+
     if (event.start?.dateTime) {
-      startDate = extractLocalDate(event.start.dateTime, userTimeZone)
-      startTime = extractLocalTime(event.start.dateTime, userTimeZone)
+      startDate = extractLocalDate(event.start.dateTime, startTz)
+      startTime = extractLocalTime(event.start.dateTime, startTz)
     }
     if (event.end?.dateTime) {
       // For timed events the end date is the same day (or next day for overnight).
       // We use it as dueDate directly (no exclusive-end correction needed).
-      dueDate = extractLocalDate(event.end.dateTime, userTimeZone)
-      endTime = extractLocalTime(event.end.dateTime, userTimeZone)
+      dueDate = extractLocalDate(event.end.dateTime, endTz)
+      endTime = extractLocalTime(event.end.dateTime, endTz)
     }
   } else {
     // All-day: Google end date is exclusive — subtract 1 day for the actual due date.
