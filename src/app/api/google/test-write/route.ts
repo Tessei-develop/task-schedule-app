@@ -1,5 +1,5 @@
 /**
- * Temporary: test Google Calendar write access and return the full error.
+ * Temporary: diagnose why pending tasks fail to push to Google Calendar.
  * DELETE after diagnosis is complete.
  */
 import { NextResponse } from 'next/server'
@@ -12,50 +12,83 @@ export async function GET() {
     const auth = await getAuthenticatedClient()
     const calendar = google.calendar({ version: 'v3', auth })
 
-    // 1. Check token scope stored in DB
-    const token = await prisma.googleToken.findUnique({ where: { id: 'singleton' } })
-    const scopeStored = token?.scope ?? '(none)'
-
-    // 2. Try inserting a test event (we'll delete it immediately)
-    let insertResult: string
-    let eventId: string | null = null
-    try {
-      const res = await calendar.events.insert({
-        calendarId: 'primary',
-        requestBody: {
-          summary: 'APP TEST EVENT — DELETE ME',
-          start: { date: new Date().toISOString().slice(0, 10) },
-          end:   { date: new Date(Date.now() + 86400000).toISOString().slice(0, 10) },
-        },
-      })
-      eventId = res.data.id ?? null
-      insertResult = `OK — created event id=${eventId}`
-    } catch (e: unknown) {
-      const err = e as { code?: number; message?: string; errors?: unknown }
-      insertResult = `FAILED: code=${err.code} message=${err.message} errors=${JSON.stringify(err.errors)}`
-    }
-
-    // 3. If insert worked, delete the test event
-    let deleteResult = 'skipped'
-    if (eventId) {
-      try {
-        await calendar.events.delete({ calendarId: 'primary', eventId })
-        deleteResult = 'OK'
-      } catch (e: unknown) {
-        const err = e as { code?: number; message?: string }
-        deleteResult = `FAILED: code=${err.code} message=${err.message}`
-      }
-    }
-
-    // 4. Count pending tasks
-    const pendingCount = await prisma.task.count({ where: { googleCalendarSynced: false } })
-
-    return NextResponse.json({
-      scopeStored,
-      insertResult,
-      deleteResult,
-      pendingTaskCount: pendingCount,
+    // Fetch the 6 pending tasks
+    const pending = await prisma.task.findMany({
+      where: { googleCalendarSynced: false },
     })
+
+    const results = await Promise.all(pending.map(async (task) => {
+      // Build exactly the same event body pushPendingTasksToGoogle would build
+      const duePart   = task.dueDate
+        ? task.dueDate.toISOString().slice(0, 10)
+        : new Date().toISOString().slice(0, 10)
+      const startPart = task.startDate
+        ? task.startDate.toISOString().slice(0, 10)
+        : duePart
+
+      let start: Record<string, string>
+      let end: Record<string, string>
+      const timeZone = process.env.USER_TIMEZONE ?? 'UTC'
+
+      if (task.startTime && task.endTime && task.endTime > task.startTime) {
+        start = { dateTime: `${startPart}T${task.startTime}:00`, timeZone }
+        end   = { dateTime: `${duePart}T${task.endTime}:00`, timeZone }
+      } else if (task.startTime) {
+        const [h, m] = task.startTime.split(':').map(Number)
+        const endH = Math.min(h + 1, 23)
+        start = { dateTime: `${startPart}T${task.startTime}:00`, timeZone }
+        end   = { dateTime: `${duePart}T${String(endH).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`, timeZone }
+      } else {
+        const d = new Date(duePart + 'T00:00:00')
+        d.setDate(d.getDate() + 1)
+        const endDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+        start = { date: startPart }
+        end   = { date: endDate }
+      }
+
+      const body = {
+        summary: task.title,
+        description: `${task.description ?? ''}\n\n---\nPriority: ${task.priority}\nStatus: ${task.status}`,
+        start,
+        end,
+      }
+
+      // Try the push (same logic as pushPendingTasksToGoogle)
+      let outcome: string
+      try {
+        if (task.googleCalendarEventId) {
+          await calendar.events.update({
+            calendarId: 'primary',
+            eventId: task.googleCalendarEventId,
+            requestBody: body,
+          })
+          outcome = 'update OK'
+        } else {
+          const res = await calendar.events.insert({
+            calendarId: 'primary',
+            requestBody: body,
+          })
+          outcome = `insert OK — new eventId=${res.data.id}`
+        }
+      } catch (e: unknown) {
+        const err = e as { code?: number; message?: string; errors?: unknown; response?: { data?: unknown } }
+        outcome = `FAILED code=${err.code} message=${err.message} responseData=${JSON.stringify(err.response?.data)}`
+      }
+
+      return {
+        taskId: task.id,
+        title: task.title,
+        googleCalendarEventId: task.googleCalendarEventId,
+        startDate: task.startDate?.toISOString().slice(0,10),
+        dueDate:   task.dueDate?.toISOString().slice(0,10),
+        startTime: task.startTime,
+        endTime:   task.endTime,
+        eventBody: body,
+        outcome,
+      }
+    }))
+
+    return NextResponse.json({ pendingCount: pending.length, results })
   } catch (err: unknown) {
     const e = err as { message?: string; stack?: string }
     return NextResponse.json({ error: e.message, stack: e.stack }, { status: 500 })
