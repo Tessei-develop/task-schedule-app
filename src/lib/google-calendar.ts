@@ -121,13 +121,23 @@ function shiftDate(dateStr: string, days: number): string {
  * Fetch the user's primary Google Calendar timezone.
  * This is required because the code runs on Vercel's server (UTC), so
  * Intl.DateTimeFormat().resolvedOptions().timeZone would return 'UTC' rather
- * than the user's actual timezone (e.g. 'Asia/Tokyo').
+ * than the user's actual timezone (e.g. 'America/Chicago').
+ *
+ * Uses calendar.events.list (within our calendar.events OAuth scope) instead of
+ * calendar.calendars.get (which requires calendar.readonly scope we don't have).
+ * The events.list response includes a top-level `timeZone` field with the
+ * calendar's configured timezone.
  */
 async function getCalendarTimezone(
   calendar: ReturnType<typeof google.calendar>
 ): Promise<string> {
   try {
-    const res = await calendar.calendars.get({ calendarId: 'primary' })
+    // events.list is within the calendar.events scope we already request.
+    // Its response payload includes res.data.timeZone = the calendar's timezone.
+    const res = await calendar.events.list({
+      calendarId: 'primary',
+      maxResults: 1,
+    })
     return res.data.timeZone ?? 'UTC'
   } catch {
     return 'UTC'
@@ -321,10 +331,6 @@ export async function syncFromGoogleCalendar(options?: { force?: boolean }): Pro
   const calendar = google.calendar({ version: 'v3', auth })
   const tokenRow = await prisma.googleToken.findUnique({ where: { id: 'singleton' } })
 
-  // Fetch user's calendar timezone once — used when converting event datetimes
-  // to local time (handles both UTC-stored old events and offset-aware new ones).
-  const userTimeZone = await getCalendarTimezone(calendar)
-
   // On forced full sync, clear the stored token so we fetch everything fresh
   if (options?.force && tokenRow?.syncToken) {
     await prisma.googleToken.update({ where: { id: 'singleton' }, data: { syncToken: null } })
@@ -345,6 +351,9 @@ export async function syncFromGoogleCalendar(options?: { force?: boolean }): Pro
   let created = 0, updated = 0, deleted = 0
   let pageToken: string | undefined
   let nextSyncToken: string | undefined
+  // Timezone is read from the first events.list response (res.data.timeZone).
+  // This is within our calendar.events scope — no separate calendars.get needed.
+  let userTimeZone = 'UTC'
 
   do {
     if (pageToken) params.pageToken = pageToken
@@ -368,6 +377,9 @@ export async function syncFromGoogleCalendar(options?: { force?: boolean }): Pro
         throw err
       }
     }
+
+    // Capture timezone from the first page response (present on every page)
+    if (res.data.timeZone) userTimeZone = res.data.timeZone
 
     nextSyncToken = res.data.nextSyncToken ?? undefined
     pageToken = res.data.nextPageToken ?? undefined
