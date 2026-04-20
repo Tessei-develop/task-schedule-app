@@ -136,7 +136,7 @@ async function getCalendarTimezone(
   calendar: ReturnType<typeof google.calendar>
 ): Promise<string> {
   // Explicit env var always wins — set this in Vercel dashboard
-  if (process.env.USER_TIMEZONE) return process.env.USER_TIMEZONE
+  if (process.env.USER_TIMEZONE) return process.env.USER_TIMEZONE.trim()
 
   try {
     const res = await calendar.events.list({
@@ -299,7 +299,7 @@ function eventToTaskFields(event: any, calendarTimeZone: string) {
 
   if (isTimedEvent) {
     // Per-event timezone, with calendar-level as fallback, then USER_TIMEZONE env var
-    const envTz    = process.env.USER_TIMEZONE
+    const envTz    = process.env.USER_TIMEZONE?.trim()
     const startTz  = event.start?.timeZone ?? envTz ?? calendarTimeZone
     const endTz    = event.end?.timeZone   ?? startTz
 

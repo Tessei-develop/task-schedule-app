@@ -13,7 +13,23 @@
       "Read(//c/Users/tetsu/Documents/Document/Claude/**)",
       "Bash(npx create-next-app@latest task-schedule-app --typescript --tailwind --app --src-dir --import-alias \"@/*\" --no-eslint --yes)",
       "Bash(npm install:*)",
-      "Bash(npx shadcn@latest init --defaults -y)"
+      "Bash(npx shadcn@latest init --defaults -y)",
+      "Bash(npx shadcn@latest add card badge dialog form input textarea select popover calendar label separator toast --yes)",
+      "Bash(npx shadcn@latest add card badge dialog form input textarea select popover calendar label separator sonner --yes)",
+      "Bash(npx prisma:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(node -e ':*)",
+      "Bash(gh --version)",
+      "Bash(curl -s -X POST http://localhost:3000/api/tasks -H 'Content-Type: application/json' -d '{\"title\":\"Test task\",\"priority\":\"MEDIUM\",\"status\":\"TODO\",\"tags\":[]}')",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(xargs grep *)",
+      "Bash(grep -r \"console\\\\\\\\.error\" \"/c/Users/tetsu/Documents/Document/Claude/Task and schedule management app/src/app/api\")",
+      "Bash(grep -r \"raw\\\\|sql\\\\|\\\\$\\\\|template\" \"/c/Users/tetsu/Documents/Document/Claude/Task and schedule management app/src/app/api\")",
+      "Bash(node -e \"require\\('zod'\\); console.log\\('zod ok'\\)\")",
+      "Bash(del \"C:\\\\Users\\\\tetsu\\\\Documents\\\\Document\\\\Claude\\\\Task and schedule management app\\\\src\\\\app\\\\api\\\\google\\\\debug\\\\route.ts\")",
+      "Bash(vercel project *)",
+      "Bash(npx vercel *)"
     ]
   }
 }
