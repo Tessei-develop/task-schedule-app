@@ -447,10 +447,14 @@ export async function syncFromGoogleCalendar(options?: { force?: boolean }): Pro
   if (!options?.force && tokenRow?.syncToken) {
     params.syncToken = tokenRow.syncToken
   } else {
-    // First sync: fetch from 30 days ago to 6 months ahead
-    params.timeMin = addDays(new Date(), -30).toISOString()
-    params.timeMax = addMonths(new Date(), 6).toISOString()
+    // Full sync: fetch from 30 days ago to 6 months ahead.
+    // showDeleted: true makes Google include cancelled (deleted) events so we
+    // can remove the corresponding tasks from the app — without this flag
+    // Google silently omits deleted events in time-range queries.
+    params.timeMin    = addDays(new Date(), -30).toISOString()
+    params.timeMax    = addMonths(new Date(), 6).toISOString()
     params.maxResults = 2500
+    params.showDeleted = true
   }
 
   let created = 0, updated = 0, deleted = 0, skipped = 0
@@ -474,9 +478,10 @@ export async function syncFromGoogleCalendar(options?: { force?: boolean }): Pro
         // Token expired — reset and retry as full sync
         await prisma.googleToken.update({ where: { id: 'singleton' }, data: { syncToken: null } })
         delete params.syncToken
-        params.timeMin = addDays(new Date(), -30).toISOString()
-        params.timeMax = addMonths(new Date(), 6).toISOString()
+        params.timeMin    = addDays(new Date(), -30).toISOString()
+        params.timeMax    = addMonths(new Date(), 6).toISOString()
         params.maxResults = 2500
+        params.showDeleted = true
         res = await calendar.events.list(params)
       } else {
         throw err
