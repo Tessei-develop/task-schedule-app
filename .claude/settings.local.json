@@ -29,7 +29,13 @@
       "Bash(node -e \"require\\('zod'\\); console.log\\('zod ok'\\)\")",
       "Bash(del \"C:\\\\Users\\\\tetsu\\\\Documents\\\\Document\\\\Claude\\\\Task and schedule management app\\\\src\\\\app\\\\api\\\\google\\\\debug\\\\route.ts\")",
       "Bash(vercel project *)",
-      "Bash(npx vercel *)"
+      "Bash(npx vercel *)",
+      "Bash(curl -s --max-time 10 https://api.vercel.com/v1/deployments)",
+      "Bash(curl -v --max-time 10 https://api.vercel.com)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(node -e \"console.log\\('AUTH_SECRET=' + require\\('crypto'\\).randomBytes\\(32\\).toString\\('hex'\\)\\); console.log\\('CRON_SECRET=' + require\\('crypto'\\).randomBytes\\(32\\).toString\\('hex'\\)\\)\")"
     ]
   }
 }

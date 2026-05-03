@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Unlink,
   Loader2,
+  LogOut,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/store/uiStore'
@@ -230,6 +231,18 @@ export function Sidebar() {
             <GoogleCalendarSection />
           </div>
         </nav>
+
+        {/* Sign out — pushed to the bottom */}
+        <button
+          onClick={async () => {
+            await fetch('/api/auth/logout', { method: 'POST' })
+            window.location.href = '/login'
+          }}
+          className="mt-auto flex items-center gap-3 px-3 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800 transition-colors"
+        >
+          <LogOut className="h-4 w-4" />
+          Sign out
+        </button>
       </aside>
 
       {/* Mobile Google Calendar bar — sits just above the bottom tab bar */}
