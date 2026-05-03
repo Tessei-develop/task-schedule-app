@@ -8,7 +8,7 @@ export type RecurrenceType =
   | 'WEEKDAY'   // Mon-Fri only
   | 'WEEKEND'   // Sat-Sun only
 
-export const PRESET_TAGS = ['work', 'personal', 'family', 'others'] as const
+export const PRESET_TAGS = ['work', 'personal', 'family', 'study', 'others'] as const
 
 export interface Task {
   id: string
