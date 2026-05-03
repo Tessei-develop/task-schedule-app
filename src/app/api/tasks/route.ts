@@ -152,6 +152,11 @@ export async function POST(req: NextRequest) {
       tags: data.tags ?? [],
     }
 
+    // Stamp every task in a recurring series with the same seriesId so the
+    // group can later be queried / updated together. crypto.randomUUID is
+    // available on the Node.js runtime API routes use.
+    const seriesId = data.recurrence ? crypto.randomUUID() : null
+
     const firstTask = await prisma.task.create({
       data: {
         ...baseFields,
@@ -160,6 +165,7 @@ export async function POST(req: NextRequest) {
         recurrence: data.recurrence ?? null,
         recurrenceInterval: data.recurrenceInterval ?? null,
         recurrenceEndDate: data.recurrenceEndDate ? new Date(data.recurrenceEndDate) : null,
+        seriesId,
       },
     })
 
@@ -188,6 +194,7 @@ export async function POST(req: NextRequest) {
             recurrence:         data.recurrence ?? null,
             recurrenceInterval: data.recurrenceInterval ?? null,
             recurrenceEndDate:  data.recurrenceEndDate ? new Date(data.recurrenceEndDate) : null,
+            seriesId,
             // googleCalendarSynced defaults to false — the next sync (manual
             // button or 7AM cron) will push these to Google Calendar.
           })),

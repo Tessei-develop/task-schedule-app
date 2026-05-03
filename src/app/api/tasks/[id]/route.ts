@@ -43,6 +43,19 @@ function serializeTask(t: Awaited<ReturnType<typeof prisma.task.findFirst>>): Ta
   }
 }
 
+// Fields that propagate to every occurrence in a series when scope=series.
+// Per-occurrence things (status, dueDate, startDate, completedAt, recurrence
+// metadata) are intentionally excluded so each task stays independent.
+const SERIES_FIELDS = [
+  'title',
+  'description',
+  'priority',
+  'estimatedMinutes',
+  'startTime',
+  'endTime',
+  'tags',
+] as const
+
 
 export async function GET(
   _req: NextRequest,
@@ -83,6 +96,43 @@ export async function PATCH(
     const existing = await prisma.task.findUnique({ where: { id } })
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+    const scope = req.nextUrl.searchParams.get('scope')
+
+    // ── Series-wide update ───────────────────────────────────────────────────
+    // When scope=series, apply only the series-shareable fields to EVERY task
+    // sharing this seriesId. Per-occurrence fields (status, dates) are ignored.
+    if (scope === 'series') {
+      if (!existing.seriesId) {
+        return NextResponse.json(
+          { error: 'This task is not part of a recurring series.' },
+          { status: 400 },
+        )
+      }
+
+      const seriesUpdate: Record<string, unknown> = {}
+      for (const field of SERIES_FIELDS) {
+        if (field in data) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          seriesUpdate[field] = (data as any)[field] ?? null
+        }
+      }
+      // Always reset googleCalendarSynced so the next sync re-pushes everyone
+      seriesUpdate.googleCalendarSynced = false
+
+      const result = await prisma.task.updateMany({
+        where: { seriesId: existing.seriesId },
+        data: seriesUpdate,
+      })
+
+      // Return the (now-updated) clicked-on task so the UI can refresh
+      const refreshed = await prisma.task.findUnique({ where: { id } })
+      return NextResponse.json({
+        task: serializeTask(refreshed),
+        seriesUpdated: result.count,
+      })
+    }
+
+    // ── Single-task update (default) ─────────────────────────────────────────
     const updateData: Record<string, unknown> = {}
     if (data.title !== undefined) updateData.title = data.title
     if (data.description !== undefined) updateData.description = data.description
@@ -134,7 +184,7 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -142,6 +192,40 @@ export async function DELETE(
     const task = await prisma.task.findUnique({ where: { id } })
     if (!task) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+    const scope = req.nextUrl.searchParams.get('scope')
+
+    // ── Series-wide delete ───────────────────────────────────────────────────
+    if (scope === 'series') {
+      if (!task.seriesId) {
+        return NextResponse.json(
+          { error: 'This task is not part of a recurring series.' },
+          { status: 400 },
+        )
+      }
+
+      // Pull every task in the series so we can also remove their calendar events
+      const seriesTasks = await prisma.task.findMany({
+        where: { seriesId: task.seriesId },
+        select: { id: true, googleCalendarEventId: true },
+      })
+
+      const connected = await isGoogleConnected()
+      if (connected) {
+        // Best-effort: failures shouldn't block DB cleanup
+        await Promise.all(
+          seriesTasks
+            .filter((t) => t.googleCalendarEventId)
+            .map((t) =>
+              deleteCalendarEvent(t.googleCalendarEventId!).catch(() => undefined),
+            ),
+        )
+      }
+
+      const result = await prisma.task.deleteMany({ where: { seriesId: task.seriesId } })
+      return NextResponse.json({ success: true, seriesDeleted: result.count })
+    }
+
+    // ── Single-task delete (default) ─────────────────────────────────────────
     if (task.googleCalendarEventId && await isGoogleConnected()) {
       try { await deleteCalendarEvent(task.googleCalendarEventId) } catch { /* non-fatal */ }
     }

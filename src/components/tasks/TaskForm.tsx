@@ -117,12 +117,12 @@ export function TaskForm() {
     setConfirmDelete(false)
   }, [isTaskFormOpen, editingTask, prefillDate, prefillData])
 
-  const handleDelete = async () => {
+  const handleDelete = async (scope: 'task' | 'series' = 'task') => {
     if (!editingTaskId) return
     setDeleting(true)
     try {
-      await deleteTask(editingTaskId)
-      toast.success('Task deleted')
+      await deleteTask(editingTaskId, { scope })
+      toast.success(scope === 'series' ? 'Entire series deleted' : 'Task deleted')
       closeTaskForm()
     } catch {
       toast.error('Failed to delete task')
@@ -148,13 +148,18 @@ export function TaskForm() {
     setForm((f) => ({ ...f, tags: f.tags.filter((t) => t !== tag) }))
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const isSeriesTask = !!editingTask?.seriesId
+
+  const handleSubmit = async (
+    e: React.FormEvent | null,
+    scope: 'task' | 'series' = 'task',
+  ) => {
+    if (e) e.preventDefault()
     if (!form.title.trim()) return
 
-    // Recurrence requires both a due date and an end date so the series has
-    // an anchor and a stop point. Show a friendly error before submitting.
-    if (form.recurrence) {
+    // For NEW tasks with recurrence, both a due date and end date are required.
+    // For series edits we don't touch dates/recurrence so this validation is skipped.
+    if (!editingTaskId && form.recurrence) {
       if (!form.dueDate) {
         toast.error('Please set a due date for the first occurrence.')
         return
@@ -191,8 +196,21 @@ export function TaskForm() {
       }
 
       if (editingTaskId) {
-        await updateTask(editingTaskId, data)
-        toast.success('Task updated')
+        await updateTask(editingTaskId, data, { scope })
+        if (scope === 'series') {
+          toast.success('Series updated. Pushing to Google Calendar…')
+          // Trigger sync so updated occurrences propagate to Google
+          fetch('/api/google/sync', { method: 'POST' })
+            .then(async (res) => {
+              if (res.ok) {
+                const d = await res.json().catch(() => ({}))
+                if (d.pushed) toast.success(`Pushed ${d.pushed} updates to Google Calendar`)
+              }
+            })
+            .catch(() => { /* best-effort */ })
+        } else {
+          toast.success('Task updated')
+        }
         closeTaskForm()
       } else {
         const { occurrencesCreated } = await createTask(data)
@@ -237,7 +255,7 @@ export function TaskForm() {
           <DialogTitle>{editingTaskId ? 'Edit Task' : 'New Task'}</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+        <form onSubmit={(e) => handleSubmit(e, 'task')} className="space-y-4 mt-2">
           {/* Title */}
           <div className="space-y-1">
             <Label htmlFor="title">Title *</Label>
@@ -445,25 +463,46 @@ export function TaskForm() {
             )}
           </div>
 
+          {/* Series banner — explains scope of edits when this task belongs to a series */}
+          {isSeriesTask && (
+            <div className="rounded-md bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 px-3 py-2 text-xs text-indigo-700 dark:text-indigo-300">
+              This task is part of a recurring series. Choose <b>Save this task</b> to
+              edit only this occurrence, or <b>Save entire series</b> to apply title /
+              description / priority / time / tags to all occurrences. Dates and status
+              always stay per-task.
+            </div>
+          )}
+
           {/* Actions */}
           <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-            {/* Delete button — only when editing an existing task */}
+            {/* Delete area — only when editing */}
             <div>
               {editingTaskId && (
                 confirmDelete ? (
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-red-600 dark:text-red-400 font-medium">
-                      Delete this task?
+                      Delete?
                     </span>
                     <Button
                       type="button"
                       size="sm"
                       variant="destructive"
-                      onClick={handleDelete}
+                      onClick={() => handleDelete('task')}
                       disabled={deleting}
                     >
-                      {deleting ? 'Deleting...' : 'Yes, delete'}
+                      {deleting ? 'Deleting...' : isSeriesTask ? 'This task only' : 'Yes, delete'}
                     </Button>
+                    {isSeriesTask && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => handleDelete('series')}
+                        disabled={deleting}
+                      >
+                        Entire series
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       size="sm"
@@ -489,11 +528,31 @@ export function TaskForm() {
               )}
             </div>
 
-            <div className="flex gap-2 ml-auto">
-              <Button type="button" variant="outline" onClick={closeTaskForm}>Cancel</Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? 'Saving...' : editingTaskId ? 'Save Changes' : 'Create Task'}
+            <div className="flex flex-wrap gap-2 ml-auto">
+              <Button type="button" variant="outline" onClick={closeTaskForm}>
+                Cancel
               </Button>
+              {/* Single-task save (also handles new-task creation) */}
+              <Button type="submit" disabled={saving}>
+                {saving
+                  ? 'Saving...'
+                  : !editingTaskId
+                    ? 'Create Task'
+                    : isSeriesTask
+                      ? 'Save this task'
+                      : 'Save Changes'}
+              </Button>
+              {/* Series save — only when editing a task that belongs to a series */}
+              {editingTaskId && isSeriesTask && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => handleSubmit(null, 'series')}
+                  disabled={saving}
+                >
+                  Save entire series
+                </Button>
+              )}
             </div>
           </div>
         </form>

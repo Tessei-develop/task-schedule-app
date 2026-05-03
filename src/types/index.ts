@@ -26,6 +26,7 @@ export interface Task {
   recurrence: RecurrenceType | null
   recurrenceInterval: number | null  // e.g. every 2 weeks → interval=2
   recurrenceEndDate: string | null
+  seriesId: string | null            // shared by all occurrences in a recurrence series
   googleCalendarEventId: string | null
   googleCalendarSynced: boolean
   createdAt: string

@@ -22,10 +22,15 @@ model Task {
   recurrence            String?
   recurrenceInterval    Int?
   recurrenceEndDate     DateTime?
+  // All occurrences in a recurrence series share the same seriesId so they
+  // can be edited / queried as a group. Null = single (non-recurring) task.
+  seriesId              String?
   googleCalendarEventId String?
   googleCalendarSynced  Boolean   @default(false)
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
+
+  @@index([seriesId])
 }
 
 model GoogleToken {

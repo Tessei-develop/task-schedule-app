@@ -24,8 +24,8 @@ interface TaskStore {
 
   fetchTasks: () => Promise<void>
   createTask: (data: Partial<Task>) => Promise<CreateTaskResult>
-  updateTask: (id: string, data: Partial<Task>) => Promise<Task>
-  deleteTask: (id: string) => Promise<void>
+  updateTask: (id: string, data: Partial<Task>, opts?: { scope?: 'task' | 'series' }) => Promise<Task>
+  deleteTask: (id: string, opts?: { scope?: 'task' | 'series' }) => Promise<void>
   setFilters: (filters: TaskFilters) => void
   clearFilters: () => void
 }
@@ -76,35 +76,53 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     return { task, occurrencesCreated }
   },
 
-  updateTask: async (id, data) => {
-    // Optimistic update
-    set((s) => ({
-      tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...data } : t)),
-    }))
-    const res = await fetch(`/api/tasks/${id}`, {
+  updateTask: async (id, data, opts) => {
+    const isSeries = opts?.scope === 'series'
+
+    // Optimistic update — only safe for single-task edits
+    if (!isSeries) {
+      set((s) => ({
+        tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...data } : t)),
+      }))
+    }
+    const url = isSeries ? `/api/tasks/${id}?scope=series` : `/api/tasks/${id}`
+    const res = await fetch(url, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     })
     if (!res.ok) {
-      // Revert on failure
       await get().fetchTasks()
       throw new Error('Failed to update task')
     }
     const { task } = await res.json()
-    set((s) => ({
-      tasks: s.tasks.map((t) => (t.id === id ? task : t)),
-    }))
+    if (isSeries) {
+      // Series edits touched many rows — re-fetch to reflect them all
+      await get().fetchTasks()
+    } else {
+      set((s) => ({
+        tasks: s.tasks.map((t) => (t.id === id ? task : t)),
+      }))
+    }
     return task
   },
 
-  deleteTask: async (id) => {
-    // Optimistic remove
-    set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }))
-    const res = await fetch(`/api/tasks/${id}`, { method: 'DELETE' })
+  deleteTask: async (id, opts) => {
+    const isSeries = opts?.scope === 'series'
+    const url = isSeries ? `/api/tasks/${id}?scope=series` : `/api/tasks/${id}`
+
+    if (!isSeries) {
+      // Optimistic remove for single-task delete
+      set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }))
+    }
+    const res = await fetch(url, { method: 'DELETE' })
     if (!res.ok) {
       await get().fetchTasks()
       throw new Error('Failed to delete task')
+    }
+    if (isSeries) {
+      // Series delete affected many rows — re-fetch
+      await get().fetchTasks()
     }
   },
 
