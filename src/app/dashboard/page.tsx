@@ -17,7 +17,6 @@ export default function DashboardPage() {
         {/* Row 1: Status overview */}
         <OverdueWidget />
         <TodayTasksWidget />
-        <UpcomingWidget />
 
         {/* Row 2: Stats */}
         <CompletionRateWidget />
@@ -30,6 +29,11 @@ export default function DashboardPage() {
         </div>
         <div className="sm:col-span-2 xl:col-span-2">
           <AIFeedbackWidget />
+        </div>
+
+        {/* Row 4: Upcoming — full width so the long list doesn't crowd other widgets */}
+        <div className="sm:col-span-2 xl:col-span-3">
+          <UpcomingWidget />
         </div>
       </div>
     </div>
