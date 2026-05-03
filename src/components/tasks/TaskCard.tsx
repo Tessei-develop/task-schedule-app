@@ -31,7 +31,12 @@ const TAG_COLORS: Record<string, string> = {
 }
 
 const RECURRENCE_LABELS: Record<string, string> = {
-  DAILY: '↻ Daily', WEEKLY: '↻ Weekly', MONTHLY: '↻ Monthly', YEARLY: '↻ Yearly',
+  DAILY:   '↻ Daily',
+  WEEKLY:  '↻ Weekly',
+  MONTHLY: '↻ Monthly',
+  YEARLY:  '↻ Yearly',
+  WEEKDAY: '↻ Weekdays',
+  WEEKEND: '↻ Weekends',
 }
 
 function formatTime(t: string | null | undefined): string | null {

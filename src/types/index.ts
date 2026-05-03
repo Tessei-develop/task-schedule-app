@@ -1,6 +1,12 @@
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED'
 export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
-export type RecurrenceType = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'
+export type RecurrenceType =
+  | 'DAILY'
+  | 'WEEKLY'
+  | 'MONTHLY'
+  | 'YEARLY'
+  | 'WEEKDAY'   // Mon-Fri only
+  | 'WEEKEND'   // Sat-Sun only
 
 export const PRESET_TAGS = ['work', 'personal', 'family', 'others'] as const
 

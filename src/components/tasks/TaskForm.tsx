@@ -30,10 +30,18 @@ const PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const
 const STATUS_OPTIONS = ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELLED'] as const
 const RECURRENCE_OPTIONS: { value: RecurrenceType; label: string }[] = [
   { value: 'DAILY',   label: 'Daily' },
+  { value: 'WEEKDAY', label: 'Every weekday (Mon–Fri)' },
+  { value: 'WEEKEND', label: 'Every weekend (Sat–Sun)' },
   { value: 'WEEKLY',  label: 'Weekly' },
   { value: 'MONTHLY', label: 'Monthly' },
   { value: 'YEARLY',  label: 'Yearly' },
 ]
+
+// WEEKDAY/WEEKEND don't take a numeric interval — the cadence is implicit
+const HAS_INTERVAL: Record<string, boolean> = {
+  DAILY: true, WEEKLY: true, MONTHLY: true, YEARLY: true,
+  WEEKDAY: false, WEEKEND: false,
+}
 
 interface FormState {
   title: string
@@ -144,6 +152,23 @@ export function TaskForm() {
     e.preventDefault()
     if (!form.title.trim()) return
 
+    // Recurrence requires both a due date and an end date so the series has
+    // an anchor and a stop point. Show a friendly error before submitting.
+    if (form.recurrence) {
+      if (!form.dueDate) {
+        toast.error('Please set a due date for the first occurrence.')
+        return
+      }
+      if (!form.recurrenceEndDate) {
+        toast.error('Please set a recurrence end date so the series stops.')
+        return
+      }
+      if (form.recurrenceEndDate < form.dueDate) {
+        toast.error('Recurrence end date must be on or after the due date.')
+        return
+      }
+    }
+
     setSaving(true)
     try {
       const data: Partial<Task> = {
@@ -158,18 +183,39 @@ export function TaskForm() {
         estimatedMinutes: form.estimatedMinutes ? parseInt(form.estimatedMinutes) : null,
         tags: form.tags,
         recurrence: (form.recurrence as RecurrenceType) || null,
-        recurrenceInterval: form.recurrence ? parseInt(form.recurrenceInterval) || 1 : null,
+        recurrenceInterval:
+          form.recurrence && HAS_INTERVAL[form.recurrence]
+            ? parseInt(form.recurrenceInterval) || 1
+            : null,
         recurrenceEndDate: form.recurrence && form.recurrenceEndDate ? form.recurrenceEndDate : null,
       }
 
       if (editingTaskId) {
         await updateTask(editingTaskId, data)
         toast.success('Task updated')
+        closeTaskForm()
       } else {
-        await createTask(data)
-        toast.success('Task created')
+        const { occurrencesCreated } = await createTask(data)
+        if (occurrencesCreated > 0) {
+          toast.success(`Created ${occurrencesCreated + 1} occurrences. Pushing to Google Calendar…`)
+        } else {
+          toast.success('Task created')
+        }
+        closeTaskForm()
+
+        // If extra occurrences were generated, kick off a sync so they push to
+        // Google Calendar right away instead of waiting for the next cron.
+        if (occurrencesCreated > 0) {
+          fetch('/api/google/sync', { method: 'POST' })
+            .then(async (res) => {
+              if (res.ok) {
+                const data = await res.json().catch(() => ({}))
+                if (data.pushed) toast.success(`Pushed ${data.pushed} tasks to Google Calendar`)
+              }
+            })
+            .catch(() => { /* best-effort */ })
+        }
       }
-      closeTaskForm()
     } catch {
       toast.error('Failed to save task')
     } finally {
@@ -353,38 +399,49 @@ export function TaskForm() {
             </Select>
 
             {form.recurrence && (
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <div className="space-y-1">
-                  <Label htmlFor="recurrenceInterval" className="text-xs text-gray-500">
-                    Every
-                  </Label>
-                  <div className="flex items-center gap-2">
+              <>
+                <div className={`grid gap-3 pt-1 ${HAS_INTERVAL[form.recurrence] ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                  {HAS_INTERVAL[form.recurrence] && (
+                    <div className="space-y-1">
+                      <Label htmlFor="recurrenceInterval" className="text-xs text-gray-500">
+                        Every
+                      </Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id="recurrenceInterval"
+                          type="number"
+                          min="1"
+                          max="99"
+                          value={form.recurrenceInterval}
+                          onChange={setField('recurrenceInterval')}
+                          className="w-16"
+                        />
+                        <span className="text-sm text-gray-500">
+                          {form.recurrence === 'DAILY'   && 'day(s)'}
+                          {form.recurrence === 'WEEKLY'  && 'week(s)'}
+                          {form.recurrence === 'MONTHLY' && 'month(s)'}
+                          {form.recurrence === 'YEARLY'  && 'year(s)'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <Label htmlFor="recurrenceEndDate" className="text-xs text-gray-500">
+                      End Date <span className="text-red-500">*</span>
+                    </Label>
                     <Input
-                      id="recurrenceInterval"
-                      type="number"
-                      min="1"
-                      max="99"
-                      value={form.recurrenceInterval}
-                      onChange={setField('recurrenceInterval')}
-                      className="w-16"
+                      id="recurrenceEndDate"
+                      type="date"
+                      value={form.recurrenceEndDate}
+                      onChange={setField('recurrenceEndDate')}
+                      required
                     />
-                    <span className="text-sm text-gray-500">
-                      {RECURRENCE_OPTIONS.find((r) => r.value === form.recurrence)?.label.toLowerCase()}(s)
-                    </span>
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="recurrenceEndDate" className="text-xs text-gray-500">
-                    End Date (optional)
-                  </Label>
-                  <Input
-                    id="recurrenceEndDate"
-                    type="date"
-                    value={form.recurrenceEndDate}
-                    onChange={setField('recurrenceEndDate')}
-                  />
-                </div>
-              </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 pt-1">
+                  All occurrences from the due date through the end date will be created at once.
+                </p>
+              </>
             )}
           </div>
 

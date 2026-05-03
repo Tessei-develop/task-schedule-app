@@ -3,7 +3,8 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { isOverdue, isDueToday } from '@/lib/date-utils'
 import { createCalendarEvent, isGoogleConnected } from '@/lib/google-calendar'
-import type { Task } from '@/types'
+import { generateOccurrenceDates, MAX_OCCURRENCES } from '@/lib/recurrence'
+import type { Task, RecurrenceType } from '@/types'
 
 const TIME_RE = /^\d{2}:\d{2}$/
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -19,7 +20,7 @@ const TaskSchema = z.object({
   endTime:            z.string().regex(TIME_RE).optional().nullable(),
   estimatedMinutes:   z.number().int().min(1).max(86400).optional().nullable(),
   tags:               z.array(z.string().max(50)).max(20).optional(),
-  recurrence:         z.enum(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']).optional().nullable(),
+  recurrence:         z.enum(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY', 'WEEKDAY', 'WEEKEND']).optional().nullable(),
   recurrenceInterval: z.number().int().min(1).max(365).optional().nullable(),
   recurrenceEndDate:  z.string().regex(DATE_RE).optional().nullable(),
 })
@@ -115,41 +116,106 @@ export async function POST(req: NextRequest) {
     }
     const data = parsed.data
 
-    const task = await prisma.task.create({
+    // ── Validate recurrence configuration ────────────────────────────────────
+    // To bulk-generate occurrences we need an end date AND a due date as the
+    // anchor for stepping. Reject ambiguous combos with a clear error.
+    if (data.recurrence) {
+      if (!data.dueDate) {
+        return NextResponse.json(
+          { error: 'A due date is required when recurrence is set.' },
+          { status: 400 },
+        )
+      }
+      if (!data.recurrenceEndDate) {
+        return NextResponse.json(
+          { error: 'A recurrence end date is required so the series has a stop point.' },
+          { status: 400 },
+        )
+      }
+      if (data.recurrenceEndDate < data.dueDate) {
+        return NextResponse.json(
+          { error: 'Recurrence end date must be on or after the due date.' },
+          { status: 400 },
+        )
+      }
+    }
+
+    // ── Create the FIRST occurrence ──────────────────────────────────────────
+    const baseFields = {
+      title: data.title,
+      description: data.description ?? null,
+      status: data.status ?? 'TODO',
+      priority: data.priority ?? 'MEDIUM',
+      estimatedMinutes: data.estimatedMinutes ?? null,
+      startTime: data.startTime ?? null,
+      endTime: data.endTime ?? null,
+      tags: data.tags ?? [],
+    }
+
+    const firstTask = await prisma.task.create({
       data: {
-        title: data.title,
-        description: data.description ?? null,
-        status: data.status ?? 'TODO',
-        priority: data.priority ?? 'MEDIUM',
+        ...baseFields,
         startDate: data.startDate ? new Date(data.startDate) : null,
         dueDate: data.dueDate ? new Date(data.dueDate) : null,
-        estimatedMinutes: data.estimatedMinutes ?? null,
-        startTime: data.startTime ?? null,
-        endTime: data.endTime ?? null,
-        tags: data.tags ?? [],
         recurrence: data.recurrence ?? null,
         recurrenceInterval: data.recurrenceInterval ?? null,
         recurrenceEndDate: data.recurrenceEndDate ? new Date(data.recurrenceEndDate) : null,
       },
     })
 
-    const serialized = serializeTask(task)
+    // ── Generate all subsequent occurrences in the DB ────────────────────────
+    let occurrencesCreated = 0
+    let cappedAtMax = false
+    if (data.recurrence && data.dueDate && data.recurrenceEndDate) {
+      const additional = generateOccurrenceDates({
+        firstStart: data.startDate ? new Date(data.startDate) : null,
+        firstDue:   new Date(data.dueDate),
+        endDate:    new Date(data.recurrenceEndDate),
+        type:       data.recurrence as RecurrenceType,
+        interval:   data.recurrenceInterval ?? 1,
+      })
 
+      cappedAtMax = additional.length === MAX_OCCURRENCES
+
+      if (additional.length > 0) {
+        await prisma.task.createMany({
+          data: additional.map(({ start, due }) => ({
+            ...baseFields,
+            startDate: start,
+            dueDate:   due,
+            // Each occurrence carries the same recurrence metadata so the badge
+            // still renders, but we no longer auto-spawn on DONE.
+            recurrence:         data.recurrence ?? null,
+            recurrenceInterval: data.recurrenceInterval ?? null,
+            recurrenceEndDate:  data.recurrenceEndDate ? new Date(data.recurrenceEndDate) : null,
+            // googleCalendarSynced defaults to false — the next sync (manual
+            // button or 7AM cron) will push these to Google Calendar.
+          })),
+        })
+        occurrencesCreated = additional.length
+      }
+    }
+
+    // ── Push the first occurrence to Google Calendar synchronously ───────────
+    let serialized = serializeTask(firstTask)
     if (await isGoogleConnected()) {
       try {
         const eventId = await createCalendarEvent(serialized)
         const updated = await prisma.task.update({
-          where: { id: task.id },
+          where: { id: firstTask.id },
           data: { googleCalendarEventId: eventId, googleCalendarSynced: true },
         })
-        return NextResponse.json({ task: serializeTask(updated) }, { status: 201 })
+        serialized = serializeTask(updated)
       } catch (syncErr) {
         console.error('[Google Calendar create sync error]', syncErr)
         // googleCalendarSynced stays false — push-pending will retry on next sync
       }
     }
 
-    return NextResponse.json({ task: serialized }, { status: 201 })
+    return NextResponse.json(
+      { task: serialized, occurrencesCreated, cappedAtMax },
+      { status: 201 },
+    )
   } catch (err) {
     console.error('[POST /api/tasks]', err)
     return NextResponse.json({ error: 'Failed to create task' }, { status: 500 })

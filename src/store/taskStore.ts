@@ -10,6 +10,12 @@ interface TaskFilters {
   dateTo?: string
 }
 
+export interface CreateTaskResult {
+  task: Task
+  /** Extra occurrences generated when the task has recurrence info (0 otherwise). */
+  occurrencesCreated: number
+}
+
 interface TaskStore {
   tasks: Task[]
   filters: TaskFilters
@@ -17,7 +23,7 @@ interface TaskStore {
   error: string | null
 
   fetchTasks: () => Promise<void>
-  createTask: (data: Partial<Task>) => Promise<Task>
+  createTask: (data: Partial<Task>) => Promise<CreateTaskResult>
   updateTask: (id: string, data: Partial<Task>) => Promise<Task>
   deleteTask: (id: string) => Promise<void>
   setFilters: (filters: TaskFilters) => void
@@ -59,9 +65,15 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       body: JSON.stringify(data),
     })
     if (!res.ok) throw new Error('Failed to create task')
-    const { task } = await res.json()
-    set((s) => ({ tasks: [task, ...s.tasks] }))
-    return task
+    const { task, occurrencesCreated = 0 } = await res.json()
+
+    if (occurrencesCreated > 0) {
+      // Bulk creation: re-fetch so the full series shows up in the list
+      await get().fetchTasks()
+    } else {
+      set((s) => ({ tasks: [task, ...s.tasks] }))
+    }
+    return { task, occurrencesCreated }
   },
 
   updateTask: async (id, data) => {

@@ -4,11 +4,9 @@ import { prisma } from '@/lib/prisma'
 import {
   updateCalendarEvent,
   deleteCalendarEvent,
-  createCalendarEvent,
   isGoogleConnected,
 } from '@/lib/google-calendar'
-import { addDays, addWeeks, addMonths, addYears, parseISO, isBefore } from 'date-fns'
-import type { Task, RecurrenceType } from '@/types'
+import type { Task } from '@/types'
 
 const TIME_RE = /^\d{2}:\d{2}$/
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -24,7 +22,7 @@ const PatchSchema = z.object({
   endTime:            z.string().regex(TIME_RE).optional().nullable(),
   estimatedMinutes:   z.number().int().min(1).max(86400).optional().nullable(),
   tags:               z.array(z.string().max(50)).max(20).optional(),
-  recurrence:         z.enum(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']).optional().nullable(),
+  recurrence:         z.enum(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY', 'WEEKDAY', 'WEEKEND']).optional().nullable(),
   recurrenceInterval: z.number().int().min(1).max(365).optional().nullable(),
   recurrenceEndDate:  z.string().regex(DATE_RE).optional().nullable(),
 })
@@ -45,61 +43,6 @@ function serializeTask(t: Awaited<ReturnType<typeof prisma.task.findFirst>>): Ta
   }
 }
 
-function nextRecurrenceDate(from: Date, type: RecurrenceType, interval: number): Date {
-  const n = interval || 1
-  switch (type) {
-    case 'DAILY':   return addDays(from, n)
-    case 'WEEKLY':  return addWeeks(from, n)
-    case 'MONTHLY': return addMonths(from, n)
-    case 'YEARLY':  return addYears(from, n)
-  }
-}
-
-async function spawnNextRecurrence(task: Awaited<ReturnType<typeof prisma.task.findFirst>>) {
-  if (!task || !task.recurrence || !task.dueDate) return
-
-  const nextDue = nextRecurrenceDate(
-    task.dueDate,
-    task.recurrence as RecurrenceType,
-    task.recurrenceInterval || 1
-  )
-
-  // Stop if past recurrence end date
-  if (task.recurrenceEndDate && isBefore(task.recurrenceEndDate, nextDue)) return
-
-  const nextStart = task.startDate
-    ? nextRecurrenceDate(task.startDate, task.recurrence as RecurrenceType, task.recurrenceInterval || 1)
-    : null
-
-  const next = await prisma.task.create({
-    data: {
-      title: task.title,
-      description: task.description,
-      status: 'TODO',
-      priority: task.priority,
-      startDate: nextStart,
-      dueDate: nextDue,
-      estimatedMinutes: task.estimatedMinutes,
-      startTime: task.startTime,
-      endTime: task.endTime,
-      tags: task.tags,
-      recurrence: task.recurrence,
-      recurrenceInterval: task.recurrenceInterval,
-      recurrenceEndDate: task.recurrenceEndDate,
-    },
-  })
-
-  const serialized = serializeTask(next)
-  if (await isGoogleConnected()) {
-    try {
-      const eventId = await createCalendarEvent(serialized)
-      await prisma.task.update({
-        where: { id: next.id },
-        data: { googleCalendarEventId: eventId, googleCalendarSynced: true },
-      })
-    } catch { /* non-fatal */ }
-  }
-}
 
 export async function GET(
   _req: NextRequest,
@@ -162,11 +105,9 @@ export async function PATCH(
     const task = await prisma.task.update({ where: { id }, data: updateData })
     const serialized = serializeTask(task)
 
-    // Spawn next occurrence when marked DONE
-    const patchedBody = body as Record<string, unknown>
-    if (patchedBody.status === 'DONE') {
-      await spawnNextRecurrence(task)
-    }
+    // Note: recurrences are now generated up-front when the task series is
+    // created (see POST /api/tasks). Marking one DONE no longer spawns the
+    // next — every occurrence is its own independent task.
 
     // Push update to Google Calendar if an event ID exists — regardless of synced flag
     if (task.googleCalendarEventId && await isGoogleConnected()) {
