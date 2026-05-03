@@ -85,12 +85,29 @@ export async function GET(req: NextRequest) {
       if (dateTo)   where.dueDate.lte = new Date(dateTo)
     }
 
-    const rawTasks = await prisma.task.findMany({
-      where,
-      orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
-    })
+    const rawTasks = await prisma.task.findMany({ where })
 
     let tasks = rawTasks.map(serializeTask)
+
+    // Sort by date + time together so tasks with a start time appear in
+    // chronological order within the same day.
+    // Rules:
+    //   1. No dueDate → pushed to the very end
+    //   2. Same date: tasks with a startTime sort before tasks without one
+    //   3. Same date + same startTime (or both absent): sort by createdAt desc
+    tasks.sort((a, b) => {
+      const dateA = a.dueDate ? a.dueDate.slice(0, 10) : '9999-99-99'
+      const dateB = b.dueDate ? b.dueDate.slice(0, 10) : '9999-99-99'
+      if (dateA !== dateB) return dateA < dateB ? -1 : 1
+
+      const timeA = a.startTime ?? '99:99'
+      const timeB = b.startTime ?? '99:99'
+      if (timeA !== timeB) return timeA < timeB ? -1 : 1
+
+      // Tiebreak: newer first
+      return b.createdAt < a.createdAt ? -1 : b.createdAt > a.createdAt ? 1 : 0
+    })
+
     if (overdueOnly) tasks = tasks.filter((t: Task) => isOverdue(t.dueDate, t.status, t.endTime))
     if (todayOnly)   tasks = tasks.filter((t: Task) => isDueToday(t.dueDate))
 
