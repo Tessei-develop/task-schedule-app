@@ -45,10 +45,13 @@ export function UpcomingWidget() {
         {Object.keys(grouped).length === 0 ? (
           <p className="text-sm text-gray-400 py-4 text-center">No upcoming tasks this week</p>
         ) : (
-          <div className="space-y-3">
+          /* Mobile: vertical stack (default)
+             Desktop (md+): horizontal columns, flex-row-reverse so the earliest
+             date (tomorrow) sits on the far right and later dates extend leftward */
+          <div className="space-y-3 md:flex md:flex-row-reverse md:space-y-0 md:gap-3">
             {Object.entries(grouped).map(([day, dayTasks]) => (
-              <div key={day}>
-                <p className="text-xs font-semibold text-gray-500 uppercase mb-1">
+              <div key={day} className="md:flex-1 md:min-w-0 md:border-l md:border-gray-100 md:dark:border-gray-700 md:pl-3 first:md:border-l-0 first:md:pl-0">
+                <p className="text-xs font-semibold text-gray-500 uppercase mb-1 md:border-b md:border-gray-100 md:dark:border-gray-700 md:pb-1">
                   {format(parseISO(day), 'EEE, MMM d')}
                 </p>
                 <ul className="space-y-1">
