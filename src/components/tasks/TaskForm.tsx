@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from 'sonner'
-import { X, Plus } from 'lucide-react'
+import { X, Plus, Trash2 } from 'lucide-react'
 import type { Task, TaskPriority, TaskStatus, RecurrenceType } from '@/types'
 import { PRESET_TAGS } from '@/types'
 
@@ -69,9 +69,11 @@ const defaultForm: FormState = {
 
 export function TaskForm() {
   const { isTaskFormOpen, editingTaskId, prefillDate, prefillData, closeTaskForm } = useUIStore()
-  const { tasks, createTask, updateTask } = useTaskStore()
+  const { tasks, createTask, updateTask, deleteTask } = useTaskStore()
   const [form, setForm] = useState<FormState>(defaultForm)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [customTagInput, setCustomTagInput] = useState('')
 
   const editingTask: Task | undefined = editingTaskId
@@ -104,7 +106,21 @@ export function TaskForm() {
       })
     }
     setCustomTagInput('')
+    setConfirmDelete(false)
   }, [isTaskFormOpen, editingTask, prefillDate, prefillData])
+
+  const handleDelete = async () => {
+    if (!editingTaskId) return
+    setDeleting(true)
+    try {
+      await deleteTask(editingTaskId)
+      toast.success('Task deleted')
+      closeTaskForm()
+    } catch {
+      toast.error('Failed to delete task')
+      setDeleting(false)
+    }
+  }
 
   const toggleTag = (tag: string) => {
     setForm((f) => ({
@@ -373,11 +389,55 @@ export function TaskForm() {
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={closeTaskForm}>Cancel</Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? 'Saving...' : editingTaskId ? 'Save Changes' : 'Create Task'}
-            </Button>
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+            {/* Delete button — only when editing an existing task */}
+            <div>
+              {editingTaskId && (
+                confirmDelete ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-red-600 dark:text-red-400 font-medium">
+                      Delete this task?
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="destructive"
+                      onClick={handleDelete}
+                      disabled={deleting}
+                    >
+                      {deleting ? 'Deleting...' : 'Yes, delete'}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setConfirmDelete(false)}
+                      disabled={deleting}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
+                    onClick={() => setConfirmDelete(true)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Delete
+                  </Button>
+                )
+              )}
+            </div>
+
+            <div className="flex gap-2 ml-auto">
+              <Button type="button" variant="outline" onClick={closeTaskForm}>Cancel</Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? 'Saving...' : editingTaskId ? 'Save Changes' : 'Create Task'}
+              </Button>
+            </div>
           </div>
         </form>
       </DialogContent>

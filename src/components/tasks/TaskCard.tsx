@@ -1,12 +1,10 @@
 'use client'
 
-import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { useTaskStore } from '@/store/taskStore'
 import { useUIStore } from '@/store/uiStore'
 import { formatDueDate, isOverdue } from '@/lib/date-utils'
-import { Pencil, Trash2, Check, CalendarDays, Calendar, RefreshCw, Clock } from 'lucide-react'
+import { Check, CalendarDays, Calendar, RefreshCw, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { Task } from '@/types'
@@ -50,13 +48,13 @@ function formatTime(t: string | null | undefined): string | null {
 }
 
 export function TaskCard({ task }: { task: Task }) {
-  const { updateTask, deleteTask } = useTaskStore()
+  const { updateTask } = useTaskStore()
   const openTaskForm = useUIStore((s) => s.openTaskForm)
-  const [deleting, setDeleting] = useState(false)
 
   const overdue = isOverdue(task.dueDate, task.status, task.endTime)
 
-  const toggleDone = async () => {
+  const toggleDone = async (e: React.MouseEvent) => {
+    e.stopPropagation()
     const newStatus = task.status === 'DONE' ? 'TODO' : 'DONE'
     try {
       await updateTask(task.id, { status: newStatus })
@@ -65,17 +63,6 @@ export function TaskCard({ task }: { task: Task }) {
       }
     } catch {
       toast.error('Failed to update task')
-    }
-  }
-
-  const handleDelete = async () => {
-    setDeleting(true)
-    try {
-      await deleteTask(task.id)
-      toast.success('Task deleted')
-    } catch {
-      toast.error('Failed to delete task')
-      setDeleting(false)
     }
   }
 
@@ -89,15 +76,28 @@ export function TaskCard({ task }: { task: Task }) {
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={() => openTaskForm(task.id)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          openTaskForm(task.id)
+        }
+      }}
       className={cn(
-        'group flex items-start gap-3 p-3 rounded-lg border bg-white dark:bg-gray-900 hover:shadow-sm transition-shadow',
+        'group flex items-start gap-3 p-3 rounded-lg border bg-white dark:bg-gray-900 transition-shadow cursor-pointer',
+        'hover:shadow-sm hover:border-indigo-300 dark:hover:border-indigo-700',
+        'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
         task.status === 'DONE' && 'opacity-60',
         overdue && task.status !== 'DONE' && 'border-red-200 dark:border-red-800'
       )}
     >
-      {/* Done toggle */}
+      {/* Done toggle — stops propagation so tapping it doesn't open the form */}
       <button
+        type="button"
         onClick={toggleDone}
+        aria-label={task.status === 'DONE' ? 'Mark as not done' : 'Mark as done'}
         className={cn(
           'mt-0.5 flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors',
           task.status === 'DONE'
@@ -109,25 +109,12 @@ export function TaskCard({ task }: { task: Task }) {
       </button>
 
       <div className="flex-1 min-w-0">
-        <div className="flex items-start justify-between gap-2">
-          <p className={cn(
-            'text-sm font-medium text-gray-900 dark:text-white truncate',
-            task.status === 'DONE' && 'line-through text-gray-400'
-          )}>
-            {task.title}
-          </p>
-          <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openTaskForm(task.id)}>
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost" size="icon" className="h-7 w-7 text-red-400 hover:text-red-600"
-              onClick={handleDelete} disabled={deleting}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
+        <p className={cn(
+          'text-sm font-medium text-gray-900 dark:text-white truncate',
+          task.status === 'DONE' && 'line-through text-gray-400'
+        )}>
+          {task.title}
+        </p>
 
         {task.description && (
           <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{task.description}</p>
