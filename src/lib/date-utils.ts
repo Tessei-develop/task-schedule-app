@@ -1,7 +1,6 @@
 import {
   isAfter,
   isBefore,
-  isToday,
   startOfDay,
   endOfDay,
   format,
@@ -14,6 +13,38 @@ import {
 // preventing UTC→local timezone shifts from moving dates to the wrong day.
 function localDate(isoString: string): Date {
   return parseISO(isoString.slice(0, 10))
+}
+
+/**
+ * Get the user's IANA timezone.
+ *
+ * On the server (Vercel runs in UTC) we use the USER_TIMEZONE env var.
+ * In the browser we use the user's resolved timezone (always correct).
+ *
+ * This matters for date-only operations like "is this task due today" —
+ * server's "today" (UTC) and user's "today" (e.g. America/Chicago) can
+ * differ by a calendar day during the user's evening / early morning.
+ */
+export function getUserTimeZone(): string {
+  if (typeof window === 'undefined' && process.env.USER_TIMEZONE) {
+    return process.env.USER_TIMEZONE.trim()
+  }
+  return Intl.DateTimeFormat().resolvedOptions().timeZone
+}
+
+/** Today's date as YYYY-MM-DD in the user's timezone. */
+function todayInUserTz(): string {
+  const tz = getUserTimeZone()
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+  const y = parts.find(p => p.type === 'year')?.value ?? ''
+  const m = parts.find(p => p.type === 'month')?.value ?? ''
+  const d = parts.find(p => p.type === 'day')?.value ?? ''
+  return `${y}-${m}-${d}`
 }
 
 export function isOverdue(dueDate: string | null, status: string, endTime?: string | null): boolean {
@@ -29,7 +60,9 @@ export function isOverdue(dueDate: string | null, status: string, endTime?: stri
 
 export function isDueToday(dueDate: string | null): boolean {
   if (!dueDate) return false
-  return isToday(localDate(dueDate))
+  // Compare YYYY-MM-DD strings — robust against server UTC vs user-local
+  // disagreements about what "today" means.
+  return dueDate.slice(0, 10) === todayInUserTz()
 }
 
 export function isDueThisWeek(dueDate: string | null): boolean {
@@ -50,7 +83,20 @@ export function formatRelativeDate(date: string | null): string {
 }
 
 export function todayISO(): string {
-  return format(new Date(), 'yyyy-MM-dd')
+  // User-timezone-aware "today". On Vercel (UTC) without this we'd get the
+  // wrong calendar day during the user's late evening.
+  return todayInUserTz()
+}
+
+/** Current wall-clock time in the user's timezone, e.g. "9:30 PM". */
+export function nowInUserTz(): string {
+  const tz = getUserTimeZone()
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(new Date())
 }
 
 export function startOfDayISO(date: Date): string {

@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getGroq, GROQ_MODEL } from '@/lib/groq'
 import { buildDailyPlanPrompt } from '@/lib/ai-prompts'
-import { isOverdue, isDueToday, todayISO } from '@/lib/date-utils'
+import { isOverdue, isDueToday, todayISO, nowInUserTz } from '@/lib/date-utils'
 import { checkRateLimit } from '@/lib/rate-limit'
-import { format } from 'date-fns'
 import type { Task } from '@/types'
 
 function serializeTask(t: Awaited<ReturnType<typeof prisma.task.findFirst>>): Task {
@@ -59,7 +58,7 @@ export async function POST(req: NextRequest) {
     const tasks = rawTasks.map(serializeTask)
     const todayTasks = tasks.filter((t: Task) => isDueToday(t.dueDate))
     const overdueTasks = tasks.filter((t: Task) => isOverdue(t.dueDate, t.status, t.endTime))
-    const currentTime = format(new Date(), 'h:mm a')
+    const currentTime = nowInUserTz()
 
     const { system, user } = buildDailyPlanPrompt(todayTasks, overdueTasks, date, currentTime)
 

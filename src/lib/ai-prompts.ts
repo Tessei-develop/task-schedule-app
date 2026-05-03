@@ -1,11 +1,29 @@
 import type { Task } from '@/types'
 import { format, parseISO, differenceInDays } from 'date-fns'
 
+function format12h(hhmm: string): string {
+  const m = hhmm.match(/^(\d{1,2}):(\d{2})$/)
+  if (!m) return hhmm
+  const h = parseInt(m[1], 10)
+  const min = m[2]
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const hour = h === 0 ? 12 : h > 12 ? h - 12 : h
+  return `${hour}:${min} ${ampm}`
+}
+
 function formatTaskLine(task: Task): string {
   const priority = `[${task.priority}]`
   const est = task.estimatedMinutes ? ` (est. ${task.estimatedMinutes}min)` : ''
   const desc = task.description ? ` - ${task.description.slice(0, 80)}` : ''
-  return `  • ${priority} ${task.title}${est}${desc}`
+  // Surface any user-set time so the AI uses the existing slot instead of
+  // inventing one. Tasks WITHOUT a time are open for the AI to schedule.
+  let time = ''
+  if (task.startTime && task.endTime) {
+    time = ` SCHEDULED ${format12h(task.startTime)}–${format12h(task.endTime)}`
+  } else if (task.startTime) {
+    time = ` SCHEDULED start ${format12h(task.startTime)}`
+  }
+  return `  • ${priority} ${task.title}${time}${est}${desc}`
 }
 
 function formatOverdueLine(task: Task): string {
@@ -36,7 +54,8 @@ Always respond with ONLY valid JSON matching the exact schema provided. No markd
       ? overdueTasks.map(formatOverdueLine).join('\n')
       : '  (none)'
 
-  const user = `Today is ${dayOfWeek}, ${date}. Current time: ${currentTime}.
+  const user = `Today is ${dayOfWeek}, ${date}. The user's current local time is ${currentTime}.
+All times in your response MUST be the user's local time (matching the SCHEDULED times shown below — do NOT convert or shift them).
 
 TODAY'S TASKS (${todayTasks.length}):
 ${todayList}
@@ -45,11 +64,13 @@ OVERDUE TASKS (${overdueTasks.length}):
 ${overdueList}
 
 Create a realistic daily schedule that:
-1. Prioritizes urgent/overdue items
-2. Groups similar tasks where possible
-3. Includes buffer time between tasks
-4. Doesn't over-schedule (max 6 focused hours / 360 min total)
-5. Suggests which overdue tasks to defer if there are too many
+1. RESPECTS already-scheduled times — for any task tagged "SCHEDULED HH:MM AM–HH:MM PM", use that EXACT slot in your "suggestedTimeSlot". Do not move, shift, or reformat them.
+2. For unscheduled tasks (no SCHEDULED tag), suggest reasonable times that don't conflict with the scheduled ones.
+3. Prioritizes urgent/overdue items among the unscheduled tasks.
+4. Groups similar unscheduled tasks where possible.
+5. Includes buffer time between tasks.
+6. Doesn't over-schedule (max 6 focused hours / 360 min total).
+7. Suggests which overdue tasks to defer if there are too many.
 
 Respond ONLY with JSON matching this exact schema:
 {
