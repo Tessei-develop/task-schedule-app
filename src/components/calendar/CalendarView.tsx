@@ -116,10 +116,22 @@ export function CalendarView() {
   }
 
   const handleDateClick = (arg: DateClickArg) => {
-    // Single click on a day cell (month view) — no time range to pre-fill.
-    // Time-range pre-fill is handled by `handleSelect` for drag-selections.
-    // Also pre-fill startDate so the new task is bounded to the clicked day.
-    openTaskForm(undefined, arg.dateStr, { startDate: arg.dateStr })
+    // Month view (all-day click): no time range to pre-fill — just the date.
+    // Week/Day view (timed click): user clicked a single 30-min slot, so
+    // pre-fill startTime = clicked time and endTime = clicked time + 30 min.
+    // (FullCalendar's `select` only fires on drag; single-clicking a slot
+    // fires only `dateClick`, which previously left start/end times blank.)
+    const dateStr = dateToLocalStr(arg.date)
+    if (arg.allDay) {
+      openTaskForm(undefined, dateStr, { startDate: dateStr })
+    } else {
+      const end = new Date(arg.date.getTime() + 30 * 60 * 1000)
+      openTaskForm(undefined, dateStr, {
+        startDate: dateStr,
+        startTime: dateToTimeStr(arg.date),
+        endTime:   dateToTimeStr(end),
+      })
+    }
   }
 
   const handleSelect = (arg: DateSelectArg) => {
