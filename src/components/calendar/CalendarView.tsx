@@ -115,41 +115,46 @@ export function CalendarView() {
     openTaskForm(task.id)
   }
 
-  const handleDateClick = (arg: DateClickArg) => {
-    // Month view (all-day click): no time range to pre-fill — just the date.
-    // Week/Day view (timed click): user clicked a single 30-min slot, so
-    // pre-fill startTime = clicked time and endTime = clicked time + 30 min.
-    // (FullCalendar's `select` only fires on drag; single-clicking a slot
-    // fires only `dateClick`, which previously left start/end times blank.)
-    const dateStr = dateToLocalStr(arg.date)
-    if (arg.allDay) {
+  // ─── Click + drag handling ─────────────────────────────────────────────────
+  // FullCalendar v6 fires BOTH `select` and `dateClick` for the same gesture
+  // when `selectable: true`, but the order/timing varies between views. We
+  // route everything through one helper and use a tiny dedupe so the second
+  // event of a single gesture doesn't clobber the first call's prefill.
+  const lastOpenAtRef = useRef(0)
+
+  const openWithPrefill = (
+    start: Date,
+    end: Date | null,
+    allDay: boolean,
+  ) => {
+    // Coalesce duplicate calls within ~250ms of each other (same gesture)
+    const now = Date.now()
+    if (now - lastOpenAtRef.current < 250) return
+    lastOpenAtRef.current = now
+
+    const dateStr = dateToLocalStr(start)
+    if (allDay) {
       openTaskForm(undefined, dateStr, { startDate: dateStr })
     } else {
-      const end = new Date(arg.date.getTime() + 30 * 60 * 1000)
+      // Single-click in time grid → end is start (zero-length); default 30min
+      const realEnd =
+        end && end.getTime() > start.getTime()
+          ? end
+          : new Date(start.getTime() + 30 * 60 * 1000)
       openTaskForm(undefined, dateStr, {
         startDate: dateStr,
-        startTime: dateToTimeStr(arg.date),
-        endTime:   dateToTimeStr(end),
+        startTime: dateToTimeStr(start),
+        endTime:   dateToTimeStr(realEnd),
       })
     }
   }
 
+  const handleDateClick = (arg: DateClickArg) => {
+    openWithPrefill(arg.date, null, arg.allDay)
+  }
+
   const handleSelect = (arg: DateSelectArg) => {
-    // User dragged across a time range in week/day view — pre-fill BOTH the
-    // start date and the time range in the new-task form so they don't have
-    // to re-enter them. (Previously only dueDate got filled, which left the
-    // Start Date blank in the form.)
-    const dateStr = dateToLocalStr(arg.start)
-    if (arg.allDay) {
-      // All-day drag selection: use the date for both start and due, no time
-      openTaskForm(undefined, dateStr, { startDate: dateStr })
-    } else {
-      openTaskForm(undefined, dateStr, {
-        startDate: dateStr,
-        startTime: dateToTimeStr(arg.start),
-        endTime:   dateToTimeStr(arg.end),
-      })
-    }
+    openWithPrefill(arg.start, arg.end, arg.allDay)
     // Clear FullCalendar's visual selection so it doesn't linger
     calendarRef.current?.getApi().unselect()
   }
