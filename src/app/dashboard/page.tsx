@@ -2,7 +2,6 @@ import { OverdueWidget } from '@/components/dashboard/widgets/OverdueWidget'
 import { TodayTasksWidget } from '@/components/dashboard/widgets/TodayTasksWidget'
 import { UpcomingWidget } from '@/components/dashboard/widgets/UpcomingWidget'
 import { CompletionRateWidget } from '@/components/dashboard/widgets/CompletionRateWidget'
-import { PriorityBreakdownWidget } from '@/components/dashboard/widgets/PriorityBreakdownWidget'
 import { WeekProgressWidget } from '@/components/dashboard/widgets/WeekProgressWidget'
 import { AIPlanWidget } from '@/components/dashboard/widgets/AIPlanWidget'
 import { AIFeedbackWidget } from '@/components/dashboard/widgets/AIFeedbackWidget'
@@ -20,7 +19,6 @@ export default function DashboardPage() {
 
         {/* Row 2: Stats */}
         <CompletionRateWidget />
-        <PriorityBreakdownWidget />
         <WeekProgressWidget />
 
         {/* Row 3: AI widgets — full width on smaller screens */}

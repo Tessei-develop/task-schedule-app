@@ -40,8 +40,10 @@ interface TaskStore {
 export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   allTasks: [],
-  // Default: hide Done and Cancelled so the list focuses on active work
-  filters: { status: ['TODO', 'IN_PROGRESS'] },
+  // Default: hide only CANCELLED. Showing DONE here so the Calendar (which
+  // shares this filter state) reveals completed work too. Users who want a
+  // pure active-work list can deselect "Done" in the Status filter.
+  filters: { status: ['TODO', 'IN_PROGRESS', 'DONE'] },
   loading: false,
   error: null,
 
@@ -160,7 +162,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   clearFilters: () => {
-    set({ filters: { status: ['TODO', 'IN_PROGRESS'] } })
+    set({ filters: { status: ['TODO', 'IN_PROGRESS', 'DONE'] } })
     get().fetchTasks()
   },
 }))

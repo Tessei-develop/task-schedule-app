@@ -82,19 +82,17 @@ function dateToTimeStr(d: Date): string {
 }
 
 export function CalendarView() {
-  const { allTasks, fetchAllTasks, updateTask } = useTaskStore()
+  const { tasks, fetchTasks, updateTask } = useTaskStore()
   const openTaskForm = useUIStore((s) => s.openTaskForm)
   const calendarRef = useRef<FullCalendar>(null)
 
   useEffect(() => {
-    fetchAllTasks()
-  }, [fetchAllTasks])
+    fetchTasks()
+  }, [fetchTasks])
 
-  // Show every task except CANCELLED — calendar is meant to be a full
-  // historical/future view, not just open work.
-  const events = allTasks
-    .filter((t) => t.status !== 'CANCELLED')
-    .map(taskToEvent)
+  // Calendar honors the user's filters — same source as the task list. The
+  // default filter (set in taskStore) hides CANCELLED but keeps DONE visible.
+  const events = tasks.map(taskToEvent)
 
   const handleEventClick = (arg: EventClickArg) => {
     const task = arg.event.extendedProps.task as Task
@@ -104,19 +102,22 @@ export function CalendarView() {
   const handleDateClick = (arg: DateClickArg) => {
     // Single click on a day cell (month view) — no time range to pre-fill.
     // Time-range pre-fill is handled by `handleSelect` for drag-selections.
-    openTaskForm(undefined, arg.dateStr)
+    // Also pre-fill startDate so the new task is bounded to the clicked day.
+    openTaskForm(undefined, arg.dateStr, { startDate: arg.dateStr })
   }
 
   const handleSelect = (arg: DateSelectArg) => {
-    // User dragged across a time range in week/day view — pre-fill the time
-    // range in the new-task form so they don't have to re-enter it.
+    // User dragged across a time range in week/day view — pre-fill BOTH the
+    // start date and the time range in the new-task form so they don't have
+    // to re-enter them. (Previously only dueDate got filled, which left the
+    // Start Date blank in the form.)
+    const dateStr = dateToLocalStr(arg.start)
     if (arg.allDay) {
-      // All-day drag selection: just use the start date, no time
-      const dateStr = `${arg.start.getFullYear()}-${String(arg.start.getMonth() + 1).padStart(2, '0')}-${String(arg.start.getDate()).padStart(2, '0')}`
-      openTaskForm(undefined, dateStr)
+      // All-day drag selection: use the date for both start and due, no time
+      openTaskForm(undefined, dateStr, { startDate: dateStr })
     } else {
-      const dateStr = `${arg.start.getFullYear()}-${String(arg.start.getMonth() + 1).padStart(2, '0')}-${String(arg.start.getDate()).padStart(2, '0')}`
       openTaskForm(undefined, dateStr, {
+        startDate: dateStr,
         startTime: dateToTimeStr(arg.start),
         endTime:   dateToTimeStr(arg.end),
       })

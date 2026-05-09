@@ -2,6 +2,7 @@ import { create } from 'zustand'
 
 export interface TaskPrefill {
   title?: string
+  startDate?: string
   dueDate?: string
   startTime?: string
   endTime?: string
