@@ -15,7 +15,7 @@ export default function CalendarPage() {
       {/* Header + filters — never scrolls */}
       <div className="shrink-0 px-3 pt-3 pb-2 md:px-6 md:pt-6 md:pb-3 border-b border-border bg-background z-10">
         <h1 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white mb-2 md:mb-3">Calendar</h1>
-        <TaskFilters />
+        <TaskFilters scope="calendar" />
       </div>
 
       {/* Calendar fills remaining space */}

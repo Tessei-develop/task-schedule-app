@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { Task } from '@/types'
 
-interface TaskFilters {
+export interface TaskFilters {
   status?: string[]
   priority?: string[]
   tags?: string[]
@@ -9,6 +9,12 @@ interface TaskFilters {
   dateFrom?: string
   dateTo?: string
 }
+
+/** Scope identifies which filter state a component is reading/writing.
+ *  - 'list'     → the Task page filter (default hides DONE + CANCELLED)
+ *  - 'calendar' → the Calendar page filter (default hides only CANCELLED)
+ */
+export type FilterScope = 'list' | 'calendar'
 
 export interface CreateTaskResult {
   task: Task
@@ -35,15 +41,22 @@ interface TaskStore {
   deleteTask: (id: string, opts?: { scope?: 'task' | 'series' }) => Promise<void>
   setFilters: (filters: TaskFilters) => void
   clearFilters: () => void
+
+  /** Calendar-specific filter — independent from `filters` so the two views
+   *  can have different defaults (Tasks hides DONE; Calendar shows DONE). */
+  calendarFilters: TaskFilters
+  setCalendarFilters: (filters: TaskFilters) => void
+  clearCalendarFilters: () => void
 }
 
 export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   allTasks: [],
-  // Default: hide only CANCELLED. Showing DONE here so the Calendar (which
-  // shares this filter state) reveals completed work too. Users who want a
-  // pure active-work list can deselect "Done" in the Status filter.
-  filters: { status: ['TODO', 'IN_PROGRESS', 'DONE'] },
+  // Tasks page default: focus on active work — hide DONE + CANCELLED
+  filters: { status: ['TODO', 'IN_PROGRESS'] },
+  // Calendar page default: show everything except CANCELLED so completed
+  // work remains visible historically
+  calendarFilters: { status: ['TODO', 'IN_PROGRESS', 'DONE'] },
   loading: false,
   error: null,
 
@@ -162,7 +175,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   clearFilters: () => {
-    set({ filters: { status: ['TODO', 'IN_PROGRESS', 'DONE'] } })
+    set({ filters: { status: ['TODO', 'IN_PROGRESS'] } })
     get().fetchTasks()
   },
+
+  setCalendarFilters: (calendarFilters) => set({ calendarFilters }),
+  clearCalendarFilters: () =>
+    set({ calendarFilters: { status: ['TODO', 'IN_PROGRESS', 'DONE'] } }),
 }))

@@ -82,17 +82,33 @@ function dateToTimeStr(d: Date): string {
 }
 
 export function CalendarView() {
-  const { tasks, fetchTasks, updateTask } = useTaskStore()
+  const { allTasks, fetchAllTasks, calendarFilters, updateTask } = useTaskStore()
   const openTaskForm = useUIStore((s) => s.openTaskForm)
   const calendarRef = useRef<FullCalendar>(null)
 
   useEffect(() => {
-    fetchTasks()
-  }, [fetchTasks])
+    fetchAllTasks()
+  }, [fetchAllTasks])
 
-  // Calendar honors the user's filters — same source as the task list. The
-  // default filter (set in taskStore) hides CANCELLED but keeps DONE visible.
-  const events = tasks.map(taskToEvent)
+  // Calendar applies its OWN filter (calendarFilters) to the unfiltered list.
+  // This lets the Tasks page hide DONE by default while the Calendar shows it.
+  const filtered = allTasks.filter((t) => {
+    const f = calendarFilters
+    if (f.status?.length   && !f.status.includes(t.status))     return false
+    if (f.priority?.length && !f.priority.includes(t.priority)) return false
+    // Tag filter: task must contain ALL selected tags (matches API's `hasEvery`)
+    if (f.tags?.length && !f.tags.every((tag) => t.tags.includes(tag))) return false
+    if (f.search) {
+      const s = f.search.toLowerCase()
+      const inTitle = t.title.toLowerCase().includes(s)
+      const inDesc  = !!t.description?.toLowerCase().includes(s)
+      if (!inTitle && !inDesc) return false
+    }
+    if (f.dateFrom && (!t.dueDate || t.dueDate.slice(0, 10) < f.dateFrom)) return false
+    if (f.dateTo   && (!t.dueDate || t.dueDate.slice(0, 10) > f.dateTo))   return false
+    return true
+  })
+  const events = filtered.map(taskToEvent)
 
   const handleEventClick = (arg: EventClickArg) => {
     const task = arg.event.extendedProps.task as Task

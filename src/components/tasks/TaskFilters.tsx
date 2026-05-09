@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useTaskStore } from '@/store/taskStore'
+import type { FilterScope } from '@/store/taskStore'
 import { Search, ChevronDown, X, Check, SlidersHorizontal } from 'lucide-react'
 
 // ─── Generic multi-select dropdown ───────────────────────────────────────────
@@ -101,12 +102,20 @@ const PRIORITY_OPTIONS: Option[] = [
 
 // ─── Main filter bar ──────────────────────────────────────────────────────────
 
-export function TaskFilters() {
-  const { filters, setFilters, clearFilters, tasks } = useTaskStore()
+export function TaskFilters({ scope = 'list' }: { scope?: FilterScope }) {
+  const store = useTaskStore()
+  const isCalendar = scope === 'calendar'
+  // Pick the right filter slice + setters based on which page rendered us
+  const filters     = isCalendar ? store.calendarFilters : store.filters
+  const setFilters  = isCalendar ? store.setCalendarFilters : store.setFilters
+  const clearFilters = isCalendar ? store.clearCalendarFilters : store.clearFilters
+  // Tag options come from the unfiltered list so all tags are always offered
+  const tasksForTags = isCalendar ? store.allTasks : store.tasks
+
   const [search, setSearch] = useState(filters.search ?? '')
   const [mobileOpen, setMobileOpen] = useState(false)
 
-  const allTags = Array.from(new Set(tasks.flatMap((t) => t.tags))).sort()
+  const allTags = Array.from(new Set(tasksForTags.flatMap((t) => t.tags))).sort()
   const tagOptions: Option[] = allTags.map((t) => ({ value: t, label: t }))
 
   const selectedStatuses   = filters.status   ?? []
