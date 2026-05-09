@@ -5,7 +5,7 @@ import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
-import type { EventClickArg, EventDropArg } from '@fullcalendar/core'
+import type { EventClickArg, EventDropArg, DateSelectArg } from '@fullcalendar/core'
 import type { DateClickArg } from '@fullcalendar/interaction'
 import { useTaskStore } from '@/store/taskStore'
 import { useUIStore } from '@/store/uiStore'
@@ -76,16 +76,25 @@ function taskToEvent(task: Task) {
   }
 }
 
+/** Format a Date as a local "HH:MM" string. */
+function dateToTimeStr(d: Date): string {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 export function CalendarView() {
-  const { tasks, fetchTasks, updateTask } = useTaskStore()
+  const { allTasks, fetchAllTasks, updateTask } = useTaskStore()
   const openTaskForm = useUIStore((s) => s.openTaskForm)
   const calendarRef = useRef<FullCalendar>(null)
 
   useEffect(() => {
-    fetchTasks()
-  }, [fetchTasks])
+    fetchAllTasks()
+  }, [fetchAllTasks])
 
-  const events = tasks.map(taskToEvent)
+  // Show every task except CANCELLED — calendar is meant to be a full
+  // historical/future view, not just open work.
+  const events = allTasks
+    .filter((t) => t.status !== 'CANCELLED')
+    .map(taskToEvent)
 
   const handleEventClick = (arg: EventClickArg) => {
     const task = arg.event.extendedProps.task as Task
@@ -93,7 +102,27 @@ export function CalendarView() {
   }
 
   const handleDateClick = (arg: DateClickArg) => {
+    // Single click on a day cell (month view) — no time range to pre-fill.
+    // Time-range pre-fill is handled by `handleSelect` for drag-selections.
     openTaskForm(undefined, arg.dateStr)
+  }
+
+  const handleSelect = (arg: DateSelectArg) => {
+    // User dragged across a time range in week/day view — pre-fill the time
+    // range in the new-task form so they don't have to re-enter it.
+    if (arg.allDay) {
+      // All-day drag selection: just use the start date, no time
+      const dateStr = `${arg.start.getFullYear()}-${String(arg.start.getMonth() + 1).padStart(2, '0')}-${String(arg.start.getDate()).padStart(2, '0')}`
+      openTaskForm(undefined, dateStr)
+    } else {
+      const dateStr = `${arg.start.getFullYear()}-${String(arg.start.getMonth() + 1).padStart(2, '0')}-${String(arg.start.getDate()).padStart(2, '0')}`
+      openTaskForm(undefined, dateStr, {
+        startTime: dateToTimeStr(arg.start),
+        endTime:   dateToTimeStr(arg.end),
+      })
+    }
+    // Clear FullCalendar's visual selection so it doesn't linger
+    calendarRef.current?.getApi().unselect()
   }
 
   const handleEventDrop = async (arg: EventDropArg) => {
@@ -145,6 +174,7 @@ export function CalendarView() {
         selectable
         eventClick={handleEventClick}
         dateClick={handleDateClick}
+        select={handleSelect}
         eventDrop={handleEventDrop}
         height="calc(100vh - 240px)"
         stickyHeaderDates

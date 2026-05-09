@@ -7,12 +7,13 @@ import { TrendingUp } from 'lucide-react'
 import { subDays, isAfter } from 'date-fns'
 
 export function CompletionRateWidget() {
-  const { tasks, fetchTasks } = useTaskStore()
+  const { allTasks, fetchAllTasks } = useTaskStore()
 
   useEffect(() => {
-    fetchTasks()
-  }, [fetchTasks])
+    fetchAllTasks()
+  }, [fetchAllTasks])
 
+  const tasks = allTasks
   const since30 = subDays(new Date(), 30)
   const recentTasks = tasks.filter((t) => isAfter(new Date(t.createdAt), since30))
   const recentDone = recentTasks.filter((t) => t.status === 'DONE')

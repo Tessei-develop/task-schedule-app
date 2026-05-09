@@ -10,15 +10,17 @@ import { toast } from 'sonner'
 import type { Task } from '@/types'
 
 export function TodayTasksWidget() {
-  const { tasks, fetchTasks, updateTask } = useTaskStore()
+  const { allTasks, fetchAllTasks, updateTask } = useTaskStore()
   const openTaskForm = useUIStore((s) => s.openTaskForm)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetchTasks().finally(() => setLoading(false))
-  }, [fetchTasks])
+    fetchAllTasks().finally(() => setLoading(false))
+  }, [fetchAllTasks])
 
-  const todayTasks: Task[] = tasks.filter((t) => isDueToday(t.dueDate))
+  const todayTasks: Task[] = allTasks
+    .filter((t) => t.status !== 'CANCELLED')
+    .filter((t) => isDueToday(t.dueDate))
   const doneTasks = todayTasks.filter((t) => t.status === 'DONE')
   const progress = todayTasks.length > 0 ? doneTasks.length / todayTasks.length : 0
 

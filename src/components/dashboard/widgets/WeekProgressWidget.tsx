@@ -8,11 +8,14 @@ import { BarChart3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export function WeekProgressWidget() {
-  const { tasks, fetchTasks } = useTaskStore()
+  const { allTasks, fetchAllTasks } = useTaskStore()
 
   useEffect(() => {
-    fetchTasks()
-  }, [fetchTasks])
+    fetchAllTasks()
+  }, [fetchAllTasks])
+
+  // Exclude cancelled — they shouldn't count toward weekly progress
+  const tasks = allTasks.filter((t) => t.status !== 'CANCELLED')
 
   const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 }) // Monday
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))

@@ -11,15 +11,15 @@ import { toast } from 'sonner'
 import type { Task } from '@/types'
 
 export function OverdueWidget() {
-  const { tasks, fetchTasks, updateTask } = useTaskStore()
+  const { allTasks, fetchAllTasks, updateTask } = useTaskStore()
   const openTaskForm = useUIStore((s) => s.openTaskForm)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetchTasks().finally(() => setLoading(false))
-  }, [fetchTasks])
+    fetchAllTasks().finally(() => setLoading(false))
+  }, [fetchAllTasks])
 
-  const overdueTasks: Task[] = tasks
+  const overdueTasks: Task[] = allTasks
     .filter((t) => isOverdue(t.dueDate, t.status, t.endTime))
     .sort((a, b) => {
       if (!a.dueDate || !b.dueDate) return 0

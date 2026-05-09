@@ -210,19 +210,40 @@ export async function DELETE(
       })
 
       const connected = await isGoogleConnected()
+      let calendarDeleted = 0
+      let calendarFailed  = 0
       if (connected) {
-        // Best-effort: failures shouldn't block DB cleanup
-        await Promise.all(
-          seriesTasks
-            .filter((t) => t.googleCalendarEventId)
-            .map((t) =>
-              deleteCalendarEvent(t.googleCalendarEventId!).catch(() => undefined),
-            ),
-        )
+        const withEvents = seriesTasks.filter((t) => t.googleCalendarEventId)
+        // Run sequentially so a single bad-token failure doesn't fan out into
+        // 30+ concurrent failures, and so per-task errors are logged clearly.
+        for (const t of withEvents) {
+          try {
+            await deleteCalendarEvent(t.googleCalendarEventId!)
+            calendarDeleted++
+          } catch (err) {
+            // 404/410 = already gone on Google's side → count as success
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const code = (err as any)?.code ?? (err as any)?.response?.status
+            if (code === 404 || code === 410) {
+              calendarDeleted++
+            } else {
+              calendarFailed++
+              console.error(
+                `[DELETE series] Failed to delete Google event ${t.googleCalendarEventId} for task ${t.id}:`,
+                err,
+              )
+            }
+          }
+        }
       }
 
       const result = await prisma.task.deleteMany({ where: { seriesId: task.seriesId } })
-      return NextResponse.json({ success: true, seriesDeleted: result.count })
+      return NextResponse.json({
+        success: true,
+        seriesDeleted: result.count,
+        calendarDeleted,
+        calendarFailed,
+      })
     }
 
     // ── Single-task delete (default) ─────────────────────────────────────────

@@ -17,12 +17,19 @@ export interface CreateTaskResult {
 }
 
 interface TaskStore {
+  /** Filtered tasks — driven by the current `filters` state. Used by TaskList. */
   tasks: Task[]
+  /** Unfiltered task list — used by Calendar view & Dashboard so they see
+   *  every task regardless of the user's filter selections. */
+  allTasks: Task[]
   filters: TaskFilters
   loading: boolean
   error: string | null
 
   fetchTasks: () => Promise<void>
+  /** Fetch every task in the DB (no server-side status/priority/tag filter).
+   *  Components that consume `allTasks` apply their own filtering as needed. */
+  fetchAllTasks: () => Promise<void>
   createTask: (data: Partial<Task>) => Promise<CreateTaskResult>
   updateTask: (id: string, data: Partial<Task>, opts?: { scope?: 'task' | 'series' }) => Promise<Task>
   deleteTask: (id: string, opts?: { scope?: 'task' | 'series' }) => Promise<void>
@@ -32,6 +39,7 @@ interface TaskStore {
 
 export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
+  allTasks: [],
   // Default: hide Done and Cancelled so the list focuses on active work
   filters: { status: ['TODO', 'IN_PROGRESS'] },
   loading: false,
@@ -58,6 +66,18 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     }
   },
 
+  fetchAllTasks: async () => {
+    try {
+      // No params at all → server returns every task
+      const res = await fetch('/api/tasks')
+      if (!res.ok) throw new Error('Failed to fetch tasks')
+      const { tasks } = await res.json()
+      set({ allTasks: tasks })
+    } catch (e) {
+      set({ error: (e as Error).message })
+    }
+  },
+
   createTask: async (data) => {
     const res = await fetch('/api/tasks', {
       method: 'POST',
@@ -68,10 +88,13 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const { task, occurrencesCreated = 0 } = await res.json()
 
     if (occurrencesCreated > 0) {
-      // Bulk creation: re-fetch so the full series shows up in the list
-      await get().fetchTasks()
+      // Bulk creation: re-fetch BOTH lists so the full series shows up everywhere
+      await Promise.all([get().fetchTasks(), get().fetchAllTasks()])
     } else {
-      set((s) => ({ tasks: [task, ...s.tasks] }))
+      set((s) => ({
+        tasks: [task, ...s.tasks],
+        allTasks: [task, ...s.allTasks],
+      }))
     }
     return { task, occurrencesCreated }
   },
@@ -83,6 +106,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     if (!isSeries) {
       set((s) => ({
         tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...data } : t)),
+        allTasks: s.allTasks.map((t) => (t.id === id ? { ...t, ...data } : t)),
       }))
     }
     const url = isSeries ? `/api/tasks/${id}?scope=series` : `/api/tasks/${id}`
@@ -92,16 +116,17 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       body: JSON.stringify(data),
     })
     if (!res.ok) {
-      await get().fetchTasks()
+      await Promise.all([get().fetchTasks(), get().fetchAllTasks()])
       throw new Error('Failed to update task')
     }
     const { task } = await res.json()
     if (isSeries) {
       // Series edits touched many rows — re-fetch to reflect them all
-      await get().fetchTasks()
+      await Promise.all([get().fetchTasks(), get().fetchAllTasks()])
     } else {
       set((s) => ({
         tasks: s.tasks.map((t) => (t.id === id ? task : t)),
+        allTasks: s.allTasks.map((t) => (t.id === id ? task : t)),
       }))
     }
     return task
@@ -113,16 +138,19 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
     if (!isSeries) {
       // Optimistic remove for single-task delete
-      set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }))
+      set((s) => ({
+        tasks: s.tasks.filter((t) => t.id !== id),
+        allTasks: s.allTasks.filter((t) => t.id !== id),
+      }))
     }
     const res = await fetch(url, { method: 'DELETE' })
     if (!res.ok) {
-      await get().fetchTasks()
+      await Promise.all([get().fetchTasks(), get().fetchAllTasks()])
       throw new Error('Failed to delete task')
     }
     if (isSeries) {
       // Series delete affected many rows — re-fetch
-      await get().fetchTasks()
+      await Promise.all([get().fetchTasks(), get().fetchAllTasks()])
     }
   },
 

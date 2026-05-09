@@ -10,14 +10,14 @@ import { CalendarDays } from 'lucide-react'
 import type { Task } from '@/types'
 
 export function UpcomingWidget() {
-  const { tasks, fetchTasks } = useTaskStore()
+  const { allTasks, fetchAllTasks } = useTaskStore()
   const openTaskForm = useUIStore((s) => s.openTaskForm)
 
   useEffect(() => {
-    fetchTasks()
-  }, [fetchTasks])
+    fetchAllTasks()
+  }, [fetchAllTasks])
 
-  const upcomingTasks: Task[] = tasks
+  const upcomingTasks: Task[] = allTasks
     .filter((t) => isDueThisWeek(t.dueDate) && t.status !== 'DONE' && t.status !== 'CANCELLED')
     .sort((a, b) => {
       if (!a.dueDate || !b.dueDate) return 0

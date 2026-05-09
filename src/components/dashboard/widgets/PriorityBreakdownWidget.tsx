@@ -14,13 +14,13 @@ const COLORS = {
 }
 
 export function PriorityBreakdownWidget() {
-  const { tasks, fetchTasks } = useTaskStore()
+  const { allTasks, fetchAllTasks } = useTaskStore()
 
   useEffect(() => {
-    fetchTasks()
-  }, [fetchTasks])
+    fetchAllTasks()
+  }, [fetchAllTasks])
 
-  const openTasks = tasks.filter((t) => t.status !== 'DONE' && t.status !== 'CANCELLED')
+  const openTasks = allTasks.filter((t) => t.status !== 'DONE' && t.status !== 'CANCELLED')
 
   const data = (['URGENT', 'HIGH', 'MEDIUM', 'LOW'] as const)
     .map((priority) => ({

@@ -115,6 +115,11 @@ export function TaskForm() {
     }
     setCustomTagInput('')
     setConfirmDelete(false)
+    // Reset transient action flags so they don't leak between consecutive
+    // edits — without this, the "deleting" flag stays true after a successful
+    // delete and disables the destructive button on the next task you open.
+    setDeleting(false)
+    setSaving(false)
   }, [isTaskFormOpen, editingTask, prefillDate, prefillData])
 
   const handleDelete = async (scope: 'task' | 'series' = 'task') => {
