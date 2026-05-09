@@ -55,9 +55,13 @@ export async function POST(req: NextRequest) {
 
     const since = subDays(new Date(), periodDays)
 
+    // "Last N days" means tasks DUE within the past N days — same convention
+    // the dashboard's CompletionRate widget now uses, so the numbers line up.
+    // (Previously this filtered by createdAt, which produced confusingly low
+    // rates when you'd just bulk-created a recurring series of future tasks.)
     const rawTasks = await prisma.task.findMany({
-      where: { createdAt: { gte: since } },
-      orderBy: { createdAt: 'desc' },
+      where: { dueDate: { gte: since, lte: new Date() } },
+      orderBy: { dueDate: 'desc' },
     })
 
     const tasks = rawTasks.map(serializeTask)
