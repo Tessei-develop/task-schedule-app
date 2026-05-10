@@ -6,7 +6,7 @@ import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import type { EventClickArg, EventDropArg, DateSelectArg } from '@fullcalendar/core'
-import type { DateClickArg } from '@fullcalendar/interaction'
+import type { DateClickArg, EventResizeDoneArg } from '@fullcalendar/interaction'
 import { useTaskStore } from '@/store/taskStore'
 import { useUIStore } from '@/store/uiStore'
 import { toast } from 'sonner'
@@ -111,6 +111,11 @@ export function CalendarView() {
   const events = filtered.map(taskToEvent)
 
   const handleEventClick = (arg: EventClickArg) => {
+    // Mark this gesture so the `select` event that fires immediately after
+    // clicking on top of an event doesn't wipe out the edit-form open call
+    // by re-opening as a new task. Without this, eventClick → openTaskForm
+    // (edit) → select → openTaskForm (new) clobbers the editing state.
+    lastOpenAtRef.current = Date.now()
     const task = arg.event.extendedProps.task as Task
     openTaskForm(task.id)
   }
@@ -159,27 +164,68 @@ export function CalendarView() {
     calendarRef.current?.getApi().unselect()
   }
 
+  /**
+   * Build the patch payload for a moved/resized FullCalendar event so the
+   * task's date AND time fields persist together. Both drag (`eventDrop`)
+   * and resize (`eventResize`) reuse this helper so behavior stays in sync.
+   */
+  const buildUpdateFromEvent = (
+    start: Date | null,
+    end: Date | null,
+    allDay: boolean,
+  ): Partial<Task> | null => {
+    if (!start) return null
+    const newStartDate = dateToLocalStr(start)
+    const updates: Partial<Task> = { startDate: newStartDate }
+
+    if (allDay) {
+      // FullCalendar all-day end dates are exclusive — subtract 1 day to
+      // get the inclusive due date the user actually means.
+      let dueDateStr = newStartDate
+      if (end) {
+        const d = new Date(end)
+        d.setDate(d.getDate() - 1)
+        dueDateStr = dateToLocalStr(d)
+      }
+      updates.dueDate = dueDateStr
+      // All-day means no time component; clear any previously-set times so
+      // the calendar event renders all-day on subsequent loads.
+      updates.startTime = null
+      updates.endTime = null
+    } else {
+      updates.startTime = dateToTimeStr(start)
+      if (end) {
+        updates.dueDate = dateToLocalStr(end)
+        updates.endTime = dateToTimeStr(end)
+      } else {
+        updates.dueDate = newStartDate
+      }
+    }
+    return updates
+  }
+
   const handleEventDrop = async (arg: EventDropArg) => {
     const task = arg.event.extendedProps.task as Task
+    const updates = buildUpdateFromEvent(arg.event.start, arg.event.end, arg.event.allDay)
+    if (!updates) { arg.revert(); return }
     try {
-      const newStart = arg.event.start ? dateToLocalStr(arg.event.start) : undefined
-      // For all-day events FullCalendar returns an exclusive end, so subtract
-      // 1 day to get the actual due date. Timed events have no adjustment.
-      let newEnd: string | undefined
-      if (arg.event.end) {
-        if (arg.event.allDay) {
-          const d = new Date(arg.event.end)
-          d.setDate(d.getDate() - 1)
-          newEnd = dateToLocalStr(d)
-        } else {
-          newEnd = dateToLocalStr(arg.event.end)
-        }
-      }
-      await updateTask(task.id, {
-        startDate: newStart,
-        dueDate: newEnd ?? newStart,
-      })
-      toast.success('Task dates updated')
+      await updateTask(task.id, updates)
+      toast.success('Task updated')
+    } catch {
+      arg.revert()
+      toast.error('Failed to update task')
+    }
+  }
+
+  const handleEventResize = async (arg: EventResizeDoneArg) => {
+    // Resizing a timed event changes start/end times; resizing an all-day
+    // event extends across days. Same patch shape works for both.
+    const task = arg.event.extendedProps.task as Task
+    const updates = buildUpdateFromEvent(arg.event.start, arg.event.end, arg.event.allDay)
+    if (!updates) { arg.revert(); return }
+    try {
+      await updateTask(task.id, updates)
+      toast.success('Task updated')
     } catch {
       arg.revert()
       toast.error('Failed to update task')
@@ -210,6 +256,7 @@ export function CalendarView() {
         dateClick={handleDateClick}
         select={handleSelect}
         eventDrop={handleEventDrop}
+        eventResize={handleEventResize}
         height="calc(100vh - 240px)"
         stickyHeaderDates
         dayMaxEvents={3}
