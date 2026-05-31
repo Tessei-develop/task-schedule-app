@@ -203,7 +203,7 @@ export function TaskForm() {
       if (editingTaskId) {
         await updateTask(editingTaskId, data, { scope })
         if (scope === 'series') {
-          toast.success('Series updated. Pushing to Google Calendar…')
+          toast.success('This & future occurrences updated. Pushing to Google Calendar…')
           // Trigger sync so updated occurrences propagate to Google
           fetch('/api/google/sync', { method: 'POST' })
             .then(async (res) => {
@@ -472,9 +472,9 @@ export function TaskForm() {
           {isSeriesTask && (
             <div className="rounded-md bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 px-3 py-2 text-xs text-indigo-700 dark:text-indigo-300">
               This task is part of a recurring series. Choose <b>Save this task</b> to
-              edit only this occurrence, or <b>Save entire series</b> to apply title /
-              description / priority / time / tags to all occurrences. Dates and status
-              always stay per-task.
+              edit only this occurrence, or <b>Save this &amp; future</b> to apply title /
+              description / priority / time / tags to this occurrence and every later one.
+              Earlier occurrences, dates, and status always stay per-task.
             </div>
           )}
 
@@ -555,7 +555,7 @@ export function TaskForm() {
                   onClick={() => handleSubmit(null, 'series')}
                   disabled={saving}
                 >
-                  Save entire series
+                  Save this &amp; future
                 </Button>
               )}
             </div>

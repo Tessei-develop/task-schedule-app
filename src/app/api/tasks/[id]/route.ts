@@ -119,8 +119,18 @@ export async function PATCH(
       // Always reset googleCalendarSynced so the next sync re-pushes everyone
       seriesUpdate.googleCalendarSynced = false
 
+      // "This and following events": apply only to the clicked occurrence and
+      // every later one. Anchor on the clicked task's own dueDate so earlier
+      // occurrences (already in the past) stay untouched. If for some reason
+      // this task has no dueDate, fall back to the whole series rather than
+      // silently editing nothing.
+      const seriesWhere = {
+        seriesId: existing.seriesId,
+        ...(existing.dueDate ? { dueDate: { gte: existing.dueDate } } : {}),
+      }
+
       const result = await prisma.task.updateMany({
-        where: { seriesId: existing.seriesId },
+        where: seriesWhere,
         data: seriesUpdate,
       })
 
