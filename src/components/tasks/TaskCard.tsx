@@ -1,13 +1,15 @@
 'use client'
 
+import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useTaskStore } from '@/store/taskStore'
 import { useUIStore } from '@/store/uiStore'
 import { formatDueDate, isOverdue } from '@/lib/date-utils'
-import { Check, CalendarDays, Calendar, RefreshCw, Clock } from 'lucide-react'
+import { Check, CalendarDays, Calendar, RefreshCw, Clock, ChevronDown, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
-import type { Task } from '@/types'
+import type { Task, TaskStatus } from '@/types'
 
 const PRIORITY_COLORS: Record<string, string> = {
   URGENT: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
@@ -17,11 +19,18 @@ const PRIORITY_COLORS: Record<string, string> = {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  TODO:        'bg-gray-100 text-gray-600',
-  IN_PROGRESS: 'bg-yellow-100 text-yellow-700',
-  DONE:        'bg-green-100 text-green-700',
-  CANCELLED:   'bg-gray-100 text-gray-400 line-through',
+  TODO:        'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
+  IN_PROGRESS: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+  DONE:        'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  CANCELLED:   'bg-gray-100 text-gray-400 line-through dark:bg-gray-800',
 }
+
+const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
+  { value: 'TODO',        label: 'To Do' },
+  { value: 'IN_PROGRESS', label: 'In Progress' },
+  { value: 'DONE',        label: 'Done' },
+  { value: 'CANCELLED',   label: 'Cancelled' },
+]
 
 const TAG_COLORS: Record<string, string> = {
   work:     'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',
@@ -53,6 +62,10 @@ function formatTime(t: string | null | undefined): string | null {
   return `${hour}:${String(m).padStart(2, '0')} ${ampm}`
 }
 
+/** Swallow clicks/keys so interacting with an inline editor never opens the
+ *  full task form (the whole card is a button). */
+const stop = (e: React.SyntheticEvent) => e.stopPropagation()
+
 export function TaskCard({ task }: { task: Task }) {
   const { updateTask } = useTaskStore()
   const openTaskForm = useUIStore((s) => s.openTaskForm)
@@ -64,9 +77,6 @@ export function TaskCard({ task }: { task: Task }) {
     const newStatus = task.status === 'DONE' ? 'TODO' : 'DONE'
     try {
       await updateTask(task.id, { status: newStatus })
-      if (newStatus === 'DONE' && task.recurrence) {
-        toast.success('Task done — next occurrence created')
-      }
     } catch {
       toast.error('Failed to update task')
     }
@@ -130,24 +140,15 @@ export function TaskCard({ task }: { task: Task }) {
           <Badge className={cn('text-xs px-1.5 py-0', PRIORITY_COLORS[task.priority])}>
             {task.priority}
           </Badge>
-          <Badge className={cn('text-xs px-1.5 py-0', STATUS_COLORS[task.status])}>
-            {task.status.replace('_', ' ')}
-          </Badge>
 
-          {task.dueDate && (
-            <span className={cn('flex items-center gap-1 text-xs', overdue ? 'text-red-500' : 'text-gray-400')}>
-              <CalendarDays className="h-3 w-3" />
-              {formatDueDate(task.dueDate)}
-              {overdue && ' (overdue)'}
-            </span>
-          )}
+          {/* Inline status editor */}
+          <StatusEditor task={task} updateTask={updateTask} />
 
-          {timeLabel && (
-            <span className="flex items-center gap-1 text-xs text-gray-400">
-              <Clock className="h-3 w-3" />
-              {timeLabel}
-            </span>
-          )}
+          {/* Inline date editor */}
+          <DateEditor task={task} updateTask={updateTask} overdue={overdue} />
+
+          {/* Inline time editor */}
+          <TimeEditor task={task} updateTask={updateTask} timeLabel={timeLabel} />
 
           {task.recurrence && (
             <span className="flex items-center gap-1 text-xs text-indigo-500 font-medium">
@@ -180,5 +181,220 @@ export function TaskCard({ task }: { task: Task }) {
         </div>
       </div>
     </div>
+  )
+}
+
+// ─── Inline editors ────────────────────────────────────────────────────────────
+
+type UpdateFn = (id: string, data: Partial<Task>, opts?: { scope?: 'task' | 'series' }) => Promise<Task>
+
+function StatusEditor({ task, updateTask }: { task: Task; updateTask: UpdateFn }) {
+  const [open, setOpen] = useState(false)
+
+  const pick = async (value: TaskStatus) => {
+    setOpen(false)
+    if (value === task.status) return
+    try {
+      await updateTask(task.id, { status: value })
+    } catch {
+      toast.error('Failed to update status')
+    }
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        onClick={stop}
+        className={cn(
+          'inline-flex items-center gap-0.5 rounded px-1.5 py-0 text-xs font-medium hover:ring-1 hover:ring-indigo-300 transition',
+          STATUS_COLORS[task.status],
+        )}
+      >
+        {task.status.replace('_', ' ')}
+        <ChevronDown className="h-3 w-3 opacity-60" />
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        onClick={stop}
+        className="w-40 p-1"
+      >
+        {STATUS_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => pick(opt.value)}
+            className={cn(
+              'flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-left hover:bg-accent',
+              opt.value === task.status && 'font-semibold',
+            )}
+          >
+            <span className={cn('h-2 w-2 rounded-full', STATUS_COLORS[opt.value].split(' ')[0])} />
+            {opt.label}
+            {opt.value === task.status && <Check className="h-3.5 w-3.5 ml-auto text-indigo-500" />}
+          </button>
+        ))}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function DateEditor({ task, updateTask, overdue }: { task: Task; updateTask: UpdateFn; overdue: boolean }) {
+  const [open, setOpen] = useState(false)
+  const current = task.dueDate ? task.dueDate.slice(0, 10) : ''
+  const [val, setVal] = useState(current)
+
+  // Keep local state in sync if the task changes underneath us
+  if (!open && val !== current) setVal(current)
+
+  const commit = async (next: string) => {
+    if (next === current) return
+    try {
+      await updateTask(task.id, { dueDate: next || null })
+    } catch {
+      toast.error('Failed to update date')
+      setVal(current)
+    }
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        onClick={stop}
+        className={cn(
+          'inline-flex items-center gap-1 rounded px-1.5 py-0 text-xs hover:ring-1 hover:ring-indigo-300 transition',
+          task.dueDate
+            ? overdue ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'
+            : 'text-gray-400',
+        )}
+      >
+        <CalendarDays className="h-3 w-3" />
+        {task.dueDate ? (
+          <>
+            {formatDueDate(task.dueDate)}
+            {overdue && ' (overdue)'}
+          </>
+        ) : (
+          'Set date'
+        )}
+      </PopoverTrigger>
+      <PopoverContent align="start" onClick={stop} className="w-auto p-2 space-y-2">
+        <input
+          type="date"
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          onKeyDown={stop}
+          className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+        />
+        <div className="flex items-center justify-between gap-2">
+          {task.dueDate && (
+            <button
+              type="button"
+              onClick={() => { setVal(''); commit(''); setOpen(false) }}
+              className="text-xs text-gray-500 hover:text-red-600"
+            >
+              Clear
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => { commit(val); setOpen(false) }}
+            className="ml-auto rounded bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-700"
+          >
+            Save
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function TimeEditor({ task, updateTask, timeLabel }: { task: Task; updateTask: UpdateFn; timeLabel: string | null }) {
+  const [open, setOpen] = useState(false)
+  const [start, setStart] = useState(task.startTime ?? '')
+  const [end, setEnd] = useState(task.endTime ?? '')
+
+  // Sync when the task changes and the popover is closed
+  if (!open) {
+    if (start !== (task.startTime ?? '')) setStart(task.startTime ?? '')
+    if (end !== (task.endTime ?? '')) setEnd(task.endTime ?? '')
+  }
+
+  const commit = async () => {
+    const nextStart = start || null
+    const nextEnd = end || null
+    if (nextStart === (task.startTime ?? null) && nextEnd === (task.endTime ?? null)) return
+    try {
+      await updateTask(task.id, { startTime: nextStart, endTime: nextEnd })
+    } catch {
+      toast.error('Failed to update time')
+      setStart(task.startTime ?? '')
+      setEnd(task.endTime ?? '')
+    }
+  }
+
+  const clear = async () => {
+    setStart(''); setEnd(''); setOpen(false)
+    try {
+      await updateTask(task.id, { startTime: null, endTime: null })
+    } catch {
+      toast.error('Failed to update time')
+    }
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        onClick={stop}
+        className={cn(
+          'inline-flex items-center gap-1 rounded px-1.5 py-0 text-xs hover:ring-1 hover:ring-indigo-300 transition',
+          timeLabel ? 'text-gray-500 dark:text-gray-400' : 'text-gray-400',
+        )}
+      >
+        {timeLabel ? <Clock className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+        {timeLabel ?? 'Add time'}
+      </PopoverTrigger>
+      <PopoverContent align="start" onClick={stop} className="w-auto p-2 space-y-2">
+        <div className="flex items-center gap-2">
+          <label className="flex flex-col text-[10px] font-medium text-gray-500">
+            Start
+            <input
+              type="time"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              onKeyDown={stop}
+              className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+            />
+          </label>
+          <label className="flex flex-col text-[10px] font-medium text-gray-500">
+            End
+            <input
+              type="time"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              onKeyDown={stop}
+              className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+            />
+          </label>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          {(task.startTime || task.endTime) && (
+            <button
+              type="button"
+              onClick={clear}
+              className="text-xs text-gray-500 hover:text-red-600"
+            >
+              Clear
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => { commit(); setOpen(false) }}
+            className="ml-auto rounded bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-700"
+          >
+            Save
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
