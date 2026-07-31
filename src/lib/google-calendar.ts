@@ -298,20 +298,25 @@ function eventToTaskFields(event: any, calendarTimeZone: string) {
   let endTime:   string | null = null
 
   if (isTimedEvent) {
-    // Per-event timezone, with calendar-level as fallback, then USER_TIMEZONE env var
-    const envTz    = process.env.USER_TIMEZONE?.trim()
-    const startTz  = event.start?.timeZone ?? envTz ?? calendarTimeZone
-    const endTz    = event.end?.timeZone   ?? startTz
+    // event.start.dateTime is an RFC3339 string WITH an offset ("Z" or "±hh:mm"),
+    // i.e. an unambiguous instant. The only correct zone to render it in is the
+    // USER'S display timezone — NOT the event's stored timeZone field. Events
+    // pushed by old app versions are stored on Google with timeZone:"UTC";
+    // Google's own UI still displays them in the calendar's timezone, so using
+    // event.start.timeZone here made the app show raw UTC clock times
+    // (e.g. 5:30 PM Chicago rendered as 10:30 PM).
+    const envTz = process.env.USER_TIMEZONE?.trim()
+    const tz    = envTz || calendarTimeZone || event.start?.timeZone || 'UTC'
 
     if (event.start?.dateTime) {
-      startDate = extractLocalDate(event.start.dateTime, startTz)
-      startTime = extractLocalTime(event.start.dateTime, startTz)
+      startDate = extractLocalDate(event.start.dateTime, tz)
+      startTime = extractLocalTime(event.start.dateTime, tz)
     }
     if (event.end?.dateTime) {
       // For timed events the end date is the same day (or next day for overnight).
       // We use it as dueDate directly (no exclusive-end correction needed).
-      dueDate = extractLocalDate(event.end.dateTime, endTz)
-      endTime = extractLocalTime(event.end.dateTime, endTz)
+      dueDate = extractLocalDate(event.end.dateTime, tz)
+      endTime = extractLocalTime(event.end.dateTime, tz)
     }
   } else {
     // All-day: Google end date is exclusive — subtract 1 day for the actual due date.
@@ -514,13 +519,19 @@ export async function syncFromGoogleCalendar(options?: { force?: boolean }): Pro
       const fields = eventToTaskFields(event, userTimeZone)
 
       if (existing) {
-        // Last-write-wins conflict resolution:
-        //   If the app's task was updated MORE RECENTLY than Google's event, the
-        //   user made a change in the app that hasn't been pushed yet (or the push
-        //   failed). Don't overwrite it — the push-pending step will retry the push.
-        //   If Google's event is newer (or equal), pull Google's version in.
+        // Conflict resolution: protect app edits that haven't reached Google yet.
+        //   Those tasks are flagged googleCalendarSynced=false (set on every app
+        //   edit whose push failed) — skip them so push-pending can retry the push.
+        //   When synced=true both sides are supposed to be identical, so pulling
+        //   Google's version is always safe — and it repairs any rows whose
+        //   times were previously imported with the wrong timezone (their
+        //   updatedAt is newer than the event's, so a plain last-write-wins
+        //   comparison would have skipped them forever).
         const googleUpdated = event.updated ? new Date(event.updated) : null
-        if (googleUpdated && existing.updatedAt > googleUpdated) {
+        if (
+          !existing.googleCalendarSynced &&
+          googleUpdated && existing.updatedAt > googleUpdated
+        ) {
           skipped++
           continue
         }
