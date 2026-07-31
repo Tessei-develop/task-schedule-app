@@ -200,15 +200,57 @@ function taskToEventBody(task: Task, timeZone: string) {
   }
 }
 
+/**
+ * Deterministic Google event id for a task.
+ *
+ * Google custom event ids must use the base32hex charset (0-9, a-v);
+ * hex-encoding the task's cuid yields only 0-9a-f, which satisfies that while
+ * keeping the mapping 1:1. Reusing the same id on every insert makes pushes
+ * IDEMPOTENT: a retried push (lost response, Vercel timeout) or a concurrent
+ * sync can never create a duplicate event — Google answers 409 and we recover.
+ */
+function eventIdForTask(taskId: string): string {
+  return Buffer.from(taskId, 'utf8').toString('hex')
+}
+
+/**
+ * Insert an event under the task's deterministic id. On 409 ("id already
+ * exists" — an earlier insert whose response we lost, or a concurrent sync
+ * that won the race) update the existing event in place instead; setting
+ * status:'confirmed' also revives it if it had been deleted meanwhile.
+ */
+async function insertEventIdempotent(
+  calendar: ReturnType<typeof google.calendar>,
+  task: Task,
+  timeZone: string,
+): Promise<string> {
+  const eventId = eventIdForTask(task.id)
+  const body = taskToEventBody(task, timeZone)
+  if (task.status === 'DONE')      body.summary = `✓ ${task.title}`
+  if (task.status === 'CANCELLED') body.summary = `✗ ${task.title}`
+  try {
+    await calendar.events.insert({
+      calendarId: 'primary',
+      requestBody: { id: eventId, ...body },
+    })
+  } catch (err) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const code = (err as any)?.code ?? (err as any)?.response?.status
+    if (code !== 409) throw err
+    await calendar.events.update({
+      calendarId: 'primary',
+      eventId,
+      requestBody: { ...body, status: 'confirmed' },
+    })
+  }
+  return eventId
+}
+
 export async function createCalendarEvent(task: Task): Promise<string> {
   const auth = await getAuthenticatedClient()
   const calendar = google.calendar({ version: 'v3', auth })
   const timeZone = await getCalendarTimezone(calendar)
-  const res = await calendar.events.insert({
-    calendarId: 'primary',
-    requestBody: taskToEventBody(task, timeZone),
-  })
-  return res.data.id!
+  return insertEventIdempotent(calendar, task, timeZone)
 }
 
 export async function updateCalendarEvent(task: Task): Promise<void> {
@@ -406,14 +448,13 @@ export async function pushPendingTasksToGoogle(): Promise<{ pushed: number; fail
           requestBody: body,
         })
       } else {
-        // Task was never pushed — create a new calendar event
-        const res = await calendar.events.insert({
-          calendarId:  'primary',
-          requestBody: taskToEventBody(serialized, timeZone),
-        })
+        // Task was never pushed — create the event idempotently (deterministic
+        // id derived from the task id) so retries and concurrent syncs can
+        // never produce duplicate events on Google Calendar.
+        const eventId = await insertEventIdempotent(calendar, serialized, timeZone)
         await prisma.task.update({
           where: { id: task.id },
-          data:  { googleCalendarEventId: res.data.id! },
+          data:  { googleCalendarEventId: eventId },
         })
       }
       await prisma.task.update({
